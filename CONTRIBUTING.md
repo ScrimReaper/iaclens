@@ -4,13 +4,13 @@ Thank you for your interest in contributing.
 
 ## Before you start
 
-- Check [open issues](https://github.com/parabvedang007/infra-graph/issues) to avoid duplicate work.
+- Check [open issues](https://github.com/vparab7/infra-graph/issues) to avoid duplicate work.
 - For significant changes, open an issue first to discuss the approach.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/parabvedang007/infra-graph
+git clone https://github.com/vparab7/infra-graph
 cd infra-graph
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -55,4 +55,4 @@ The most useful contribution is a worked example: run `infra-graph build` on a r
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the MIT License.
+By contributing, you agree that your contributions are licensed under the Apache License 2.0.

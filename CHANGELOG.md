@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-22
+
+### Changed
+
+- **License:** Switched from MIT to Apache 2.0.
+- **Security:** Added CodeQL scanning workflow and Dependabot auto-update config.
+- **Docs:** Clarified PyPI package name (`infra-graph7`) vs CLI command (`infra-graph`); fixed all repo URLs to `vparab7/infra-graph`.
+
 ## [0.1.1] - 2026-04-22
 
 ### Fixed
@@ -41,5 +49,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `infra-graph install` for Claude Code, Cursor, Codex, and OpenCode.
 - `/infra-graph` Claude Code skill.
 
-[Unreleased]: https://github.com/parabvedang007/infra-graph/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/parabvedang007/infra-graph/releases/tag/v0.1.0
+[Unreleased]: https://github.com/vparab7/infra-graph/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/vparab7/infra-graph/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/vparab7/infra-graph/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/vparab7/infra-graph/releases/tag/v0.1.0
