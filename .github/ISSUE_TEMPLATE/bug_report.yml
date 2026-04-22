@@ -1,0 +1,60 @@
+name: Bug report
+description: Something isn't working correctly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug.
+
+  - type: input
+    id: version
+    attributes:
+      label: infra-graph version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: file_type
+    attributes:
+      label: File type(s) involved
+      multiple: true
+      options:
+        - Terraform / HCL
+        - Kubernetes YAML
+        - GitHub Actions
+        - Docker Compose
+        - Helm
+        - Kustomize
+        - Other
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug. Include the command you ran and any error output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small `.tf` or `.yaml` snippet that triggers the bug, or steps to reproduce.
+    validations:
+      required: true

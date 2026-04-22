@@ -1,0 +1,31 @@
+# .infraignore — patterns to exclude from infra-graph parsing
+# Uses gitignore-style patterns (pathspec gitwildmatch)
+# Rename this file to .infraignore to activate it.
+
+# Ignore generated/vendor Terraform files
+.terraform/
+**/.terraform/**
+*.tfstate
+*.tfstate.backup
+*.tfplan
+
+# Ignore node_modules
+node_modules/
+
+# Ignore test fixtures in CI
+tests/fixtures/
+
+# Ignore third-party Helm charts (fetched by helm dep update)
+charts/
+
+# Ignore example files
+*.example.tf
+*.example.yml
+*.example.yaml
+
+# Ignore large generated values files
+**/values-generated.yaml
+
+# Ignore backup files
+*.bak
+*.orig

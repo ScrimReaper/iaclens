@@ -1,0 +1,24 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cluster-appset
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            argocd-hub: "true"
+  template:
+    metadata:
+      name: '{{name}}-myapp'
+    spec:
+      project: myapp
+      source:
+        repoURL: https://github.com/example/myapp
+        targetRevision: HEAD
+        path: k8s
+      destination:
+        server: '{{server}}'
+        namespace: myapp

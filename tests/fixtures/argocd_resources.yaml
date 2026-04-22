@@ -1,0 +1,93 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: myapp
+  namespace: argocd
+spec:
+  description: My application project
+  destinations:
+    - namespace: myapp
+      server: https://kubernetes.default.svc
+  sourceRepos:
+    - '*'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp-app
+  namespace: argocd
+spec:
+  project: myapp
+  source:
+    repoURL: https://github.com/example/myapp
+    targetRevision: HEAD
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: myapp
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: myapp-appset
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - cluster: staging
+  template:
+    metadata:
+      name: '{{cluster}}-myapp'
+    spec:
+      project: myapp
+      source:
+        repoURL: https://github.com/example/myapp
+        targetRevision: HEAD
+        path: k8s
+      destination:
+        server: '{{url}}'
+        namespace: myapp
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: my-store
+  namespace: default
+spec:
+  provider:
+    vault:
+      server: https://vault.example.com
+      path: secret
+      version: v2
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: my-secret
+  namespace: default
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: my-store
+    kind: ClusterSecretStore
+  target:
+    name: my-k8s-secret
+  data:
+    - secretKey: apikey
+      remoteRef:
+        key: myapp/apikey
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-cert
+  namespace: default
+spec:
+  secretName: my-tls-secret
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - myapp.example.com

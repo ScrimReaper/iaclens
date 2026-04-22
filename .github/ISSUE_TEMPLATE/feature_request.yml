@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new file format, MCP tool, or capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the suggestion. Before opening, please check if a similar request already exists.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - New file format / parser
+        - New MCP tool
+        - New CLI command
+        - Graph analysis improvement
+        - Visualization
+        - Install / integration
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case and why it matters for infrastructure analysis.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would the feature look like? Example commands, node types, or edge types are helpful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

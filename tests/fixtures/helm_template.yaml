@@ -1,0 +1,12 @@
+{{- if .Values.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ .Values.projectName }}
+  namespace: argocd
+spec:
+  description: __helm__
+  destinations:
+    - namespace: default
+      server: https://kubernetes.default.svc
+{{- end }}
