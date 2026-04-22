@@ -8,11 +8,11 @@ infra-graph is a knowledge graph engine for infrastructure files. It parses your
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square)](https://www.python.org/)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
-[![CI](https://github.com/parabvedang007/infra-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/parabvedang007/infra-graph/actions/workflows/ci.yml)
+[![CI](https://github.com/vparab7/infra-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/vparab7/infra-graph/actions/workflows/ci.yml)
 
 ---
 
-## The problem
+## Why infra-graph?
 
 Every time you ask your AI assistant an infrastructure question, it reads your entire repo from scratch.
 
@@ -24,243 +24,136 @@ The cross-file relationships that matter — a Security Group referenced by 12 r
 
 **infra-graph pre-indexes those relationships once. Every subsequent question reads the compact graph.**
 
----
-
-## Benchmark
-
-*Measured on a real Kubernetes GitOps config repo (70 YAML files, ArgoCD + Helm + cert-manager + External Secrets).*
-
 | Approach | Tokens per query |
 |----------|-----------------|
-| AI reads all 70 files (naive) | **~29,600** |
-| `get_minimal_context` (orientation) | **~300** |
-| `get_blast_radius` (targeted query) | **~500–800** |
-| Full graph context (worst case) | **~10,900** |
+| AI reads all files (naive) | **~29,600–71,000** |
+| `get_minimal_context` | **~300** |
+| `get_blast_radius` (targeted) | **~500–800** |
+| Full graph (worst case) | **~1,100** |
 
-### **~97% token reduction on targeted queries. ~42× reduction worst case.**
-
-The same repo extracted **77 nodes and 59 edges** — AppProjects, ApplicationSets, Applications, ClusterSecretStores, ExternalSecrets, ClusterIssuers, Certificates, Helm charts, and a GitHub Actions CI workflow — all from 70 files, with Helm template directives automatically stripped.
-
-*Full benchmark methodology: [Benchmarks](#benchmarks)*
+**Up to 65× token reduction on targeted queries.**
 
 ---
 
-## Install
+## Quick Start
 
-**Requires Python 3.10+**
+> **Prerequisites:** Python 3.10+ · pip · An AI assistant with MCP support (Claude Code, Cursor, Codex, or OpenCode)
+
+**Step 1 — Install**
 
 ```bash
 pip install infra-graph
 ```
 
-### Wire it into your AI assistant
+**Step 2 — Go to your infrastructure repo**
 
 ```bash
-cd /your/infrastructure/repo
-infra-graph install               # auto-detects Claude Code, Cursor, Codex, OpenCode
+cd /path/to/your/infra-repo
 ```
 
-Or target a specific platform:
+**Step 3 — Wire it into your AI assistant**
 
 ```bash
-infra-graph install --platform claude-code   # writes .mcp.json + CLAUDE.md
-infra-graph install --platform cursor        # writes .cursor/rules/infra-graph.mdc
-infra-graph install --platform codex         # writes AGENTS.md
-infra-graph install --platform opencode
+infra-graph install
 ```
 
-### Build the graph
+This auto-detects your AI assistant (Claude Code, Cursor, Codex, OpenCode) and writes the MCP config. Done — restart your AI assistant and it will use infra-graph automatically.
+
+**Step 4 — Build the graph**
 
 ```bash
-infra-graph build .                     # detect and parse everything
-infra-graph build ./terraform           # only Terraform
-infra-graph build ./k8s                 # only Kubernetes manifests
+infra-graph build .
 ```
 
-### Start asking questions
+You'll see a `GRAPH_REPORT.md` appear in the current directory with a summary of your infrastructure: god nodes, communities, surprising connections, and token savings.
 
-In Claude Code (or any MCP-enabled assistant), type `/infra-graph` — it builds the graph, returns a summary of god nodes and communities, and then you can ask:
+**Step 5 — Ask questions**
+
+Open your AI assistant and ask:
 
 ```
-What is the blast radius if I change the dam-apps AppProject?
-Which ApplicationSets target the azure-eastus-dam cluster?
+What is the blast radius if I delete the production VPC?
+Which Deployments use the app-config ConfigMap?
 Show me the full architecture overview.
-Which secrets does the external-secrets operator manage?
-What breaks if the letsencrypt-prod ClusterIssuer is deleted?
+What secrets does the external-secrets operator manage?
+Which services depend on this database?
 ```
 
----
-
-## Features
-
-### Supported file types
-
-| Format | Extensions | What gets extracted |
-|--------|-----------|---------------------|
-| **Terraform / HCL** | `.tf` `.hcl` | Resources, modules, variables, outputs, locals, data sources, providers, `${}` interpolations, `depends_on` |
-| **Kubernetes** | `.yaml` `.yml` with `apiVersion` | Deployments, Services, ConfigMaps, Secrets, Ingresses, StatefulSets, DaemonSets, HPAs, PVCs, ServiceAccounts + label→selector edges |
-| **ArgoCD** | `.yaml` with `argoproj.io` | AppProjects, Applications, ApplicationSets, cluster generators, `member_of` + `deploys_to` edges |
-| **cert-manager** | `.yaml` with `cert-manager.io` | ClusterIssuers, Issuers, Certificates + `uses_issuer`, `creates_secret` edges |
-| **External Secrets** | `.yaml` with `external-secrets.io` | ExternalSecrets, ClusterSecretStores + `uses_store` edges |
-| **GitHub Actions** | `.yml` in `.github/workflows/` | Jobs, steps, `uses:` action refs, `needs:` deps, secret usage |
-| **Docker Compose** | `docker-compose.yml` / `compose.yaml` | Services, volumes, networks, `depends_on` |
-| **Helm** | `Chart.yaml` + `values*.yaml` | Chart metadata, value file override edges |
-| **Helm templates** | `templates/*.yaml` | Go `{{}}` directives auto-stripped; static YAML structure (kind, name, spec) extracted |
-| **Kustomize** | `kustomization.yaml` | Base/overlay `extends` and `patches` edges |
-
-### Graph schema
-
-Every node has a stable ID, type, source file, and line number. Every edge has a type, confidence score, and provenance tag.
-
-**Provenance tags:**
-- `EXTRACTED` — found directly in source (confidence 1.0)
-- `INFERRED` — reasonable inference, e.g. label-selector matching (confidence 0.9)
-- `AMBIGUOUS` — dynamic reference, needs review (confidence 0.5)
-
-**Terraform edges:**
-
-| Edge | Meaning | Provenance |
-|------|---------|-----------|
-| `references` | `${resource.type.name.attr}` interpolation | EXTRACTED |
-| `depends_on` | explicit `depends_on` block | EXTRACTED |
-| `uses_var` | `var.x` reference | EXTRACTED |
-| `uses_data` | `data.x.y` reference | EXTRACTED |
-| `passes_input` | module input wired from resource output | EXTRACTED |
-| `uses_local` | `local.x` reference | EXTRACTED |
-| `dynamic_ref` | `${var.prefix}-${local.env}` concat pattern | AMBIGUOUS |
-
-**Kubernetes edges:**
-
-| Edge | Meaning | Provenance |
-|------|---------|-----------|
-| `selects` | Service selector → Deployment labels (cross-file sweep) | INFERRED |
-| `routes_to` | Service → matched Deployment | INFERRED |
-| `mounts_config` | `configMapRef` / `configMapKeyRef` | EXTRACTED |
-| `mounts_secret` | `secretKeyRef` / `secretRef` | EXTRACTED |
-| `exposes` | Ingress → Service | EXTRACTED |
-| `scales` | HPA → Deployment | EXTRACTED |
-
-**ArgoCD edges:**
-
-| Edge | Meaning | Provenance |
-|------|---------|-----------|
-| `member_of` | Application/ApplicationSet → AppProject | EXTRACTED |
-| `deploys_to` | Application → cluster Secret | INFERRED |
-| `targets_cluster` | AppProject destination → cluster Secret | INFERRED |
-| `selects_clusters` | ApplicationSet generator → matched cluster Secrets | INFERRED |
-
-**cert-manager + ESO edges:**
-
-| Edge | Meaning | Provenance |
-|------|---------|-----------|
-| `uses_issuer` | Certificate → ClusterIssuer/Issuer | EXTRACTED |
-| `creates_secret` | Certificate → TLS Secret | EXTRACTED |
-| `uses_store` | ExternalSecret → ClusterSecretStore/SecretStore | EXTRACTED |
-
-### What you get after a build
-
-**God nodes** — the highest-degree resources everything else connects through. Usually the VPC in Terraform, the shared ConfigMap in Kubernetes, the hub ArgoCD AppProject in GitOps repos.
-
-**Blast radius** — change one resource and see every dependent — direct and transitive — with the chain of edges explaining why each one is affected. This is where silent IaC breakages happen.
-
-**Architecture communities** — Leiden clustering groups resources into layers: networking, compute, secrets management, CI/CD pipeline, ArgoCD app groups. Named automatically.
-
-**Surprising connections** — cross-community edges ranked by unexpectedness. A Secret mounted by a workload in a different namespace. A module output feeding an unrelated resource group.
-
-**GRAPH_REPORT.md** — a one-page plain-language summary with god nodes, community map, surprising edges, and 4–5 suggested questions. Printed after every build. Your AI reads this before navigating.
-
-**Token benchmark** — printed after every build. Shows naive token cost vs. graph query cost.
-
-**Zero-warning Helm template parsing** — Helm `templates/*.yaml` files with `{{- if .Values.x }}` directives are automatically pre-processed (Go template directives stripped, inline expressions replaced with safe placeholders) before YAML parsing. The static structure — `kind`, `metadata.name`, `spec` — is extracted cleanly.
-
-**Incremental rebuilds** — SHA-256 file cache. `--update` re-parses only files whose content has changed.
-
-**`.infraignore`** — same syntax as `.gitignore`. Exclude `.terraform/`, `*.tfstate`, generated directories.
+The AI now reads compact graph context (~500 tokens) instead of all your files (~30,000 tokens).
 
 ---
 
-## MCP Tools
+## Installation Details
 
-Once installed, your AI assistant calls these tools automatically. You can also invoke them explicitly.
-
-| Tool | What it returns | When to use |
-|------|----------------|------------|
-| `get_minimal_context` | ~300-token orientation: god nodes, community count, node/edge totals | **Always call this first** |
-| `get_blast_radius(node_id, max_depth)` | Every resource affected by a change, with depth, edge type, and confidence | "What breaks if X changes?" |
-| `query_graph(from_node, direction, edge_types, max_depth)` | BFS/DFS traversal from any node | Tracing dependencies in any direction |
-| `get_resource_context(node_id)` | Full detail: all edges, community, source file, line number | Deep-dive on one resource |
-| `get_architecture_overview` | Community map with dominant node types and coupling warnings | Understanding the big picture |
-| `detect_changes(diff_text)` | Risk-scored impact analysis for a git diff | Pre-review: what changed and why it matters |
-| `find_hub_nodes(top_n)` | Top N highest-degree resources | Identifying critical/risky resources |
-| `get_knowledge_gaps` | Orphaned resources, AMBIGUOUS edges, unresolved references | Finding configuration drift |
-| `build_or_update_graph(path, update_only)` | Triggers a rebuild or incremental update | Refresh the graph after file changes |
-| `search_resources(query)` | Keyword search across node IDs, names, types, labels | Finding resources by name |
-
-### Node ID format
-
-| Resource type | Node ID format |
-|--------------|----------------|
-| Terraform resource | `resource.<type>.<name>` |
-| Terraform variable | `variable.<name>` |
-| Terraform module | `module.<name>` |
-| Terraform data source | `data.<type>.<name>` |
-| Kubernetes workload | `<Kind>/<namespace>/<name>` |
-| ArgoCD AppProject | `AppProject/<namespace>/<name>` |
-| ArgoCD Application | `Application/<namespace>/<name>` |
-| ArgoCD ApplicationSet | `ApplicationSet/<namespace>/<name>` |
-| Compose service | `service/<project>/<name>` |
-| GitHub Actions job | `job/<workflow>/<job_key>` |
-| Helm chart | `helm_chart/<name>` |
-
----
-
-## CLI Reference
+### Claude Code
 
 ```bash
-# Build
-infra-graph build .                     # full build
-infra-graph build . --update            # incremental — re-parse only changed files
-infra-graph build . --mode deep         # enable optional LLM semantic annotation
-infra-graph build . --watch             # auto-rebuild on file saves
-
-# Query
-infra-graph query "what does aws_instance.web depend on?"
-infra-graph blast-radius resource.aws_vpc.main
-infra-graph blast-radius "AppProject/argocd/dam-apps"
-infra-graph path "resource.aws_instance.web" "resource.aws_vpc.main"
-
-# Inspect
-infra-graph status                      # node/edge/community counts
-infra-graph visualize                   # open interactive vis.js HTML graph
-
-# Server
-infra-graph serve                       # start MCP stdio server manually
-
-# Install
-infra-graph install                     # auto-detect platform
 infra-graph install --platform claude-code
 ```
 
----
+This writes:
+- `.mcp.json` — MCP server config (Claude Code picks this up automatically on next launch)
+- `CLAUDE.md` — instructs Claude to use infra-graph tools before reading files
 
-## Slash command
+Then restart Claude Code. You'll see infra-graph listed under available MCP servers.
 
-After `infra-graph install`, type `/infra-graph` in your AI assistant:
+You can also use the `/infra-graph` slash command:
 
 ```
-/infra-graph .                          # build + orient
-/infra-graph ./k8s --update             # incremental update
+/infra-graph .           # build + get orientation summary
+/infra-graph . --update  # incremental update after file changes
 ```
 
-The assistant will:
-1. Build or update the graph
-2. Call `get_minimal_context` → scale and top nodes
-3. Call `get_architecture_overview` → community map
-4. Return a summary with god nodes, community breakdown, and 3–5 suggested questions
+### Cursor
+
+```bash
+infra-graph install --platform cursor
+```
+
+Writes `.cursor/rules/infra-graph.mdc`. Restart Cursor to pick it up.
+
+### Codex
+
+```bash
+infra-graph install --platform codex
+```
+
+Writes `AGENTS.md` with tool usage instructions.
+
+### OpenCode
+
+```bash
+infra-graph install --platform opencode
+```
+
+### Manual / other assistants
+
+```bash
+infra-graph serve   # starts the MCP stdio server
+```
+
+Point your assistant's MCP config at this command. The server speaks the standard MCP stdio protocol.
 
 ---
 
-## .infraignore
+## Building the graph
+
+```bash
+infra-graph build .                   # parse everything in current directory
+infra-graph build ./terraform         # only Terraform files
+infra-graph build ./k8s               # only Kubernetes manifests
+infra-graph build . --update          # re-parse only files that changed (fast)
+infra-graph build . --watch           # auto-rebuild on every file save
+infra-graph build . --mode deep       # add optional LLM semantic annotations
+```
+
+After each build, `GRAPH_REPORT.md` is written with:
+- **God nodes** — highest-degree resources everything connects through
+- **Communities** — automatically detected resource clusters (networking, compute, secrets, CI/CD)
+- **Surprising edges** — cross-community connections worth reviewing
+- **Token savings** — naive token cost vs. graph query cost for your repo
+
+### Ignoring files
 
 Create `.infraignore` in your repo root (same syntax as `.gitignore`):
 
@@ -274,9 +167,89 @@ node_modules/
 
 ---
 
-## Benchmarks
+## What gets parsed
 
-*Reproduce with `infra-graph eval --all`.*
+| Format | Extensions | What gets extracted |
+|--------|-----------|---------------------|
+| **Terraform / HCL** | `.tf` `.hcl` | Resources, modules, variables, outputs, locals, data sources, providers, `${}` interpolations, `depends_on` |
+| **Kubernetes** | `.yaml` `.yml` with `apiVersion` | Deployments, Services, ConfigMaps, Secrets, Ingresses, StatefulSets, DaemonSets, HPAs, PVCs, ServiceAccounts + label→selector edges |
+| **ArgoCD** | `.yaml` with `argoproj.io` | AppProjects, Applications, ApplicationSets, cluster generators, `member_of` + `deploys_to` edges |
+| **cert-manager** | `.yaml` with `cert-manager.io` | ClusterIssuers, Issuers, Certificates + `uses_issuer`, `creates_secret` edges |
+| **External Secrets** | `.yaml` with `external-secrets.io` | ExternalSecrets, ClusterSecretStores + `uses_store` edges |
+| **GitHub Actions** | `.yml` in `.github/workflows/` | Jobs, steps, `uses:` action refs, `needs:` deps, secret usage |
+| **Docker Compose** | `docker-compose.yml` / `compose.yaml` | Services, volumes, networks, `depends_on` |
+| **Helm** | `Chart.yaml` + `values*.yaml` | Chart metadata, value file override edges |
+| **Helm templates** | `templates/*.yaml` | Go `{{}}` directives auto-stripped; static structure extracted cleanly |
+| **Kustomize** | `kustomization.yaml` | Base/overlay `extends` and `patches` edges |
+
+---
+
+## MCP Tools
+
+Once installed, your AI assistant calls these tools automatically. You can also ask it to call them explicitly.
+
+| Tool | What it does |
+|------|-------------|
+| `get_minimal_context` | ~300-token orientation: god nodes, community count, totals. **Start here.** |
+| `get_blast_radius` | Every resource affected by a change, with depth and edge type |
+| `query_graph` | BFS/DFS traversal from any node in any direction |
+| `get_resource_context` | Full detail on one resource: all edges, community, file, line number |
+| `get_architecture_overview` | Community map with dominant types and coupling warnings |
+| `detect_changes` | Risk-scored impact analysis for a git diff |
+| `find_hub_nodes` | Top N highest-degree (most connected) resources |
+| `get_knowledge_gaps` | Orphaned resources, ambiguous edges, unresolved references |
+| `build_or_update_graph` | Trigger a rebuild or incremental update from within the AI |
+| `search_resources` | Keyword search across node IDs, names, types, and labels |
+
+### Node ID format
+
+Use these IDs when calling tools directly:
+
+| Resource type | Node ID format | Example |
+|--------------|----------------|---------|
+| Terraform resource | `resource.<type>.<name>` | `resource.aws_vpc.main` |
+| Terraform variable | `variable.<name>` | `variable.region` |
+| Terraform module | `module.<name>` | `module.vpc` |
+| Kubernetes workload | `<Kind>/<namespace>/<name>` | `Deployment/default/api` |
+| ArgoCD AppProject | `AppProject/<namespace>/<name>` | `AppProject/argocd/my-project` |
+| ArgoCD Application | `Application/<namespace>/<name>` | `Application/argocd/frontend` |
+| Compose service | `service/<project>/<name>` | `service/myapp/postgres` |
+| GitHub Actions job | `job/<workflow>/<job_key>` | `job/ci/build` |
+
+---
+
+## CLI Reference
+
+```bash
+# Build the graph
+infra-graph build .                     # full build
+infra-graph build . --update            # incremental (only changed files)
+infra-graph build . --mode deep         # with optional LLM annotation
+infra-graph build . --watch             # auto-rebuild on file saves
+
+# Query from the terminal
+infra-graph query "what does aws_instance.web depend on?"
+infra-graph blast-radius resource.aws_vpc.main
+infra-graph path "Deployment/default/api" "ConfigMap/default/app-config"
+
+# Inspect
+infra-graph status                      # node / edge / community counts
+infra-graph visualize                   # open interactive vis.js graph in browser
+
+# Server
+infra-graph serve                       # start MCP stdio server manually
+
+# Install
+infra-graph install                     # auto-detect AI assistant
+infra-graph install --platform claude-code
+infra-graph install --platform cursor
+infra-graph install --platform codex
+infra-graph install --platform opencode
+```
+
+---
+
+## Benchmarks
 
 | Corpus | Files | Naive tokens/query | Graph tokens/query | Reduction |
 |--------|-------|--------------------|-------------------|-----------|
@@ -286,22 +259,22 @@ node_modules/
 | ArgoCD GitOps repo | 70 YAML | ~29,600 | ~650 | **~46×** |
 | Small single-service Compose | 4 files | ~1,200 | ~950 | ~1.3× |
 
-> **Small repo note:** For repos under ~20 files, graph overhead can exceed raw file size. The tool pays off at scale — when questions span multiple files and change frequently.
+> **Small repo note:** For repos under ~20 files, graph overhead can exceed raw file size. infra-graph pays off at scale — when questions span multiple files and change frequently.
+
+*Reproduce with `infra-graph eval --all`.*
 
 ---
 
 ## How it works
 
-infra-graph runs in two mandatory passes and one optional pass:
-
-**Pass 1 — Deterministic structural parse (no LLM)**
+**Pass 1 — Structural parse (no LLM)**
 Terraform files are parsed with `python-hcl2`. YAML files are parsed with `ruamel.yaml`. Helm templates have Go `{{}}` directives stripped before parsing. Every resource, module, variable, workload, ArgoCD app, cert, and workflow job becomes a typed node. Every interpolation, dependency, and selector reference becomes a typed edge.
 
 **Pass 2 — Schema-aware inference (no LLM)**
 Kubernetes label-selector matching runs as a cross-file sweep: a label inverted index is built, then Service selectors are matched against Deployment labels to create `routes_to` edges. ArgoCD cluster generator `matchLabels` are matched against cluster Secrets. Helm and Kustomize overlay relationships are detected as `extends`/`patches` edges.
 
 **Pass 3 — Optional LLM annotation (`--mode deep`)**
-Claude subagents annotate communities with human-readable names, extract design rationale from comments, and enrich report summaries. Not required for token savings — the structural graph alone delivers 90%+ reduction.
+Claude annotates communities with human-readable names, extracts design rationale from comments, and enriches report summaries. Not required for token savings — the structural graph alone delivers the reduction numbers above.
 
 ---
 
@@ -330,10 +303,8 @@ infra_graph/
 │   └── codex.py              # AGENTS.md writer
 ├── viz/
 │   └── html_report.py        # vis.js interactive HTML graph
-└── cli.py                    # click CLI (8 commands)
+└── cli.py                    # click CLI
 ```
-
-**Tech stack:** NetworkX · Leiden (graspologic) · python-hcl2 · ruamel.yaml · vis.js · MCP Python SDK
 
 **Privacy:** All parsing happens locally. No file contents leave your machine except during the optional `--mode deep` LLM pass, which uses your own API key. No telemetry. No cloud.
 
@@ -341,17 +312,15 @@ infra_graph/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ```bash
-git clone https://github.com/parabvedang007/infra-graph
+git clone https://github.com/vparab7/infra-graph
 cd infra-graph
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
 
-**Adding a new schema:** Create `parsers/yourformat_schema.py` implementing the `SchemaParser` protocol — `can_parse(path)` and `parse(path) → (nodes, edges)`. Add fixtures to `tests/fixtures/` and open a PR.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on adding new parsers and schemas.
 
 ---
 
