@@ -4,7 +4,7 @@
 
 infra-graph is a knowledge graph engine for infrastructure files. It parses your Terraform, Kubernetes, ArgoCD, GitHub Actions, Docker Compose, Helm, and Kustomize files, builds a structural dependency graph, and exposes it as an MCP server — so your AI assistant reads compact graph context instead of raw files on every question.
 
-[![PyPI](https://img.shields.io/pypi/v/infra-graph?style=flat-square&color=blue)](https://pypi.org/project/infra-graph/)
+[![PyPI](https://img.shields.io/pypi/v/infra-graph7?style=flat-square&color=blue)](https://pypi.org/project/infra-graph7/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square)](https://www.python.org/)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
@@ -42,7 +42,7 @@ The cross-file relationships that matter — a Security Group referenced by 12 r
 **Step 1 — Install**
 
 ```bash
-pip install infra-graph
+pip install infra-graph7
 ```
 
 **Step 2 — Go to your infrastructure repo**
