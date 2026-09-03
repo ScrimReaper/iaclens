@@ -15,6 +15,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
+from ._ids import qualified, rel_posix
 from .actions_schema import ActionsParser
 from .ansible_schema import AnsibleParser
 from .compose_schema import ComposeParser
@@ -132,7 +133,7 @@ class YAMLParser:
         # ── Generic YAML fallback — any parseable YAML dict → config node ─────
         for doc in docs:
             if isinstance(doc, dict) and doc:
-                config_id = f"config/{path.stem}"
+                config_id = qualified("config", rel_posix(path, self._root), path.stem)
                 return {
                     "nodes": [{
                         "id": config_id,

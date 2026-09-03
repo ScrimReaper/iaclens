@@ -175,7 +175,7 @@ class TestGenericYamlFallback:
         parser = YAMLParser(FIXTURES)
         result = parser.parse_file(FIXTURES / "generic_config.yaml")
         node_ids = {n["id"] for n in result["nodes"]}
-        assert "config/generic_config" in node_ids
+        assert "config/generic_config.yaml#generic_config" in node_ids
 
     def test_node_type_is_config(self):
         parser = YAMLParser(FIXTURES)
