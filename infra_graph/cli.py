@@ -39,7 +39,7 @@ def _load_graph_or_exit(builder: GraphBuilder) -> None:
 
 
 @click.group()
-@click.version_option(package_name="infra-graph")
+@click.version_option(package_name="infra-graph7")
 def cli() -> None:
     """infra-graph: Infrastructure knowledge graph for Claude Code."""
 
