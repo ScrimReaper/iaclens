@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-09-03
+
+### Added
+- `iaclens serve` now auto-watches the repository and keeps the graph fresh for the AI assistant. A burst of file saves is debounced (default 800ms, tunable with `IACLENS_WATCH_DEBOUNCE_MS`, clamped to 100ms–60s) into ONE full rebuild, so cross-file relationships stay correct. Disable with `IACLENS_NO_WATCH`; passing an explicit `--graph` serves a static graph and skips watching.
+
+### Changed
+- Removed the standalone `build --watch`. The MCP server (`serve`) owns watching now.
+
+### Fixed
+- The Docker Compose parser no longer warns on Jinja-templated compose files (e.g. an Ansible role's `templates/docker-compose.yml`); those are templates, not compose files, and are skipped quietly.
+
 ## [0.5.0] — 2026-09-03
 
 Parser improvements. The graph now models real relationships instead of colliding on names.
