@@ -299,7 +299,9 @@ def serve(path: str, graph_path: str | None) -> None:
     rebuild on each one, so the graph stays fresh without a separate
     `build --watch` process. Set IACLENS_NO_WATCH=1 to disable watching, and
     IACLENS_WATCH_DEBOUNCE_MS to tune the debounce window (default 800,
-    clamped to [100, 60000]).
+    clamped to [100, 60000]). Passing an explicit --graph disables
+    auto-watch: that file is served static, since rebuilds always write to
+    the project's own iaclens-out/graph.toon.
     """
     project_root = Path(path).resolve()
     builder = _get_builder(project_root)
@@ -308,10 +310,10 @@ def serve(path: str, graph_path: str | None) -> None:
     click.echo(f"Building graph for: {project_root}", err=True)
     builder.build()
 
-    watch_handle = _maybe_start_watch(builder)
+    gp = Path(graph_path).resolve() if graph_path else None
+    watch_handle = _maybe_start_watch(builder, explicit_graph=gp)
 
     from .mcp.server import run_server
-    gp = Path(graph_path).resolve() if graph_path else None
     try:
         run_server(project_root=project_root, graph_file=gp)
     finally:
@@ -322,13 +324,29 @@ def serve(path: str, graph_path: str | None) -> None:
             observer.join()
 
 
-def _maybe_start_watch(builder: GraphBuilder) -> tuple | None:
-    """Start the auto-watcher for `serve`, unless IACLENS_NO_WATCH is set.
+def _maybe_start_watch(
+    builder: GraphBuilder, explicit_graph: Path | None = None
+) -> tuple | None:
+    """Start the auto-watcher for `serve`, unless watching is disabled.
+
+    Watching is skipped if `IACLENS_NO_WATCH` is set, or if `explicit_graph`
+    is given: rebuilds always write to `builder.out_dir/graph.toon`, so an
+    explicit `--graph` pointed at a different file (e.g. a federated graph)
+    would never see live updates from the watcher. An explicit graph is
+    served static instead of silently going stale.
 
     Returns `(scheduler, observer)` on success, or `None` if watching is
     disabled. The caller owns stopping both on shutdown.
     """
     import os
+
+    if explicit_graph is not None:
+        click.echo(
+            "Auto-watch disabled: serving an explicit --graph file "
+            "(rebuilds would not reach it).",
+            err=True,
+        )
+        return None
 
     if os.environ.get("IACLENS_NO_WATCH"):
         return None

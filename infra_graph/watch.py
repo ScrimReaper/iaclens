@@ -158,6 +158,10 @@ def should_trigger(path: Path, root: Path) -> bool:
     or any dot-directory, and it is not excluded by the repo's
     `.infraignore`. This keeps the watcher from ever rebuilding in a loop
     off its own output.
+
+    `.github/` is the one dot-directory exception, mirroring the builder's
+    own `_collect_files` (`graph/builder.py`): GitHub Actions workflows are
+    parsed into the graph, so live edits to them must trigger a rebuild too.
     """
     path = Path(path)
     if path.suffix not in PARSEABLE_EXTENSIONS:
@@ -169,7 +173,9 @@ def should_trigger(path: Path, root: Path) -> bool:
         return False
 
     for part in rel.parts[:-1]:
-        if part == "iaclens-out" or part.startswith("."):
+        if part == "iaclens-out":
+            return False
+        if part.startswith(".") and part != ".github":
             return False
 
     spec = _load_infraignore_spec(Path(root))

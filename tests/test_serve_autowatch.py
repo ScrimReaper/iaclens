@@ -18,6 +18,16 @@ def test_ignores_dotdirs_generally(tmp_path):
     assert should_trigger(root / ".venv/lib/whatever.yaml", root) is False
 
 
+def test_github_workflows_are_the_dotdir_exception(tmp_path):
+    """.github/ mirrors the builder's own _collect_files exception: GitHub
+    Actions workflows are parsed into the graph, so edits to them must
+    trigger a rebuild too, unlike every other dot-directory."""
+    root = tmp_path
+    assert should_trigger(root / ".github/workflows/ci.yml", root) is True
+    assert should_trigger(root / ".git/index", root) is False
+    assert should_trigger(root / ".terraform/modules/main.tf", root) is False
+
+
 def test_respects_infraignore(tmp_path):
     root = tmp_path
     (root / ".infraignore").write_text("dist/\n*.tfstate\n")
@@ -33,6 +43,23 @@ def test_no_watch_env_var_skips_watcher(monkeypatch):
         project_root = Path("/tmp/does-not-matter")
 
     result = _maybe_start_watch(DummyBuilder())
+    assert result is None
+
+
+def test_explicit_graph_path_skips_watcher(monkeypatch, tmp_path, capsys):
+    """Rebuilds always write to builder.out_dir/graph.toon; an explicit
+    --graph pointed elsewhere would never see live updates, so the watcher
+    must not start when one is given -- regardless of IACLENS_NO_WATCH."""
+    monkeypatch.delenv("IACLENS_NO_WATCH", raising=False)
+    from infra_graph.cli import _maybe_start_watch
+
+    class DummyBuilder:
+        project_root = tmp_path
+
+    other_graph = tmp_path / "federated-graph.toon"
+    result = _maybe_start_watch(DummyBuilder(), explicit_graph=other_graph)
+    assert result is None
+    assert "Auto-watch disabled" in capsys.readouterr().err
     assert result is None
 
 
