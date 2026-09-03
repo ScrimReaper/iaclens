@@ -94,3 +94,6 @@ infra_graph/viz/obsidian_export.py
 # Nix build result symlinks
 result
 result-*
+
+# local-only SDD planning artifacts (kept in sec-docs, never published)
+docs/superpowers/
