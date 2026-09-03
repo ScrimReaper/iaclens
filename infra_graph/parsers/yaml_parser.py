@@ -152,9 +152,14 @@ class YAMLParser:
 
     def finalize(self) -> list[dict]:
         """
-        Call after all files are parsed.
-        Runs selector resolution for Kubernetes and returns extra edges.
+        Call after all files are parsed. Aggregates every sub-parser's
+        cross-file resolution edges (k8s selectors plus any sub-parser
+        exposing a callable `finalize()`).
         """
         extra_edges = self._k8s.resolve_selectors()
         extra_edges += self._k8s.resolve_cluster_selectors()
+        for parser in (self._ansible, self._compose, self._helm, self._actions):
+            fn = getattr(parser, "finalize", None)
+            if callable(fn):
+                extra_edges += fn()
         return extra_edges
