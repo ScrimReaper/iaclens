@@ -150,6 +150,8 @@ class KubernetesParser:
         self._all_nodes: dict[str, dict] = {}
         # Pending cluster selectors: (node_id, selector_dict, namespace)
         self._pending_cluster_selectors: list[tuple[str, dict, str]] = []
+        # abs file path (str) -> node ids produced from that file
+        self._file_nodes: dict[str, list[str]] = {}
 
     def parse_file(
         self,
@@ -216,7 +218,14 @@ class KubernetesParser:
             new_edges = self._extract_edges(kind, api_version, node_id, spec, namespace, metadata, doc)
             edges.extend(new_edges)
 
+        # Resolved so the key matches HelmParser's resolved kustomize refs
+        # regardless of whether the caller passed an already-resolved path.
+        self._file_nodes[str(path.resolve())] = [n["id"] for n in nodes]
         return {"nodes": nodes, "edges": edges}
+
+    def file_nodes(self) -> dict[str, list[str]]:
+        """Map of abs file path (str) -> node ids produced from that file."""
+        return self._file_nodes
 
     # ── Edge extraction dispatcher ─────────────────────────────────────────────
 

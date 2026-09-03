@@ -63,7 +63,7 @@ class YAMLParser:
         self._k8s = KubernetesParser()
         self._actions = ActionsParser()
         self._compose = ComposeParser()
-        self._helm = HelmParser()
+        self._helm = HelmParser(self._root)
         self._ansible = AnsibleParser(self._root)
 
     @property
@@ -153,13 +153,59 @@ class YAMLParser:
     def finalize(self) -> list[dict]:
         """
         Call after all files are parsed. Aggregates every sub-parser's
-        cross-file resolution edges (k8s selectors plus any sub-parser
-        exposing a callable `finalize()`).
+        cross-file resolution edges (k8s selectors, kustomize resource
+        linkage, plus any sub-parser exposing a callable `finalize()`).
         """
         extra_edges = self._k8s.resolve_selectors()
         extra_edges += self._k8s.resolve_cluster_selectors()
+        extra_edges += self._resolve_kustomize_resources()
         for parser in (self._ansible, self._compose, self._helm, self._actions):
             fn = getattr(parser, "finalize", None)
             if callable(fn):
                 extra_edges += fn()
         return extra_edges
+
+    def _resolve_kustomize_resources(self) -> list[dict]:
+        """
+        Link HelmParser's pending kustomize `resources:`/`bases:` refs to the
+        real nodes they point at. Cross-parser by nature (needs both
+        HelmParser's pending refs and KubernetesParser's file->node map), so
+        it lives here rather than in either sub-parser. Edges-only and
+        idempotent: drains `_kustomize_pending` on every call.
+        """
+        edges: list[dict] = []
+        file_nodes = self._k8s.file_nodes()
+        pending = self._helm._kustomize_pending
+        for overlay_id, _overlay_dir, _ref, resolved in pending:
+            node_ids = file_nodes.get(str(resolved))
+            if node_ids is not None:
+                # Resolved to a parsed manifest file: link to its real nodes.
+                for node_id in node_ids:
+                    edges.append(
+                        {
+                            "from": overlay_id,
+                            "to": node_id,
+                            "type": "includes",
+                            "confidence": 1.0,
+                            "provenance": "EXTRACTED",
+                        }
+                    )
+                continue
+            if resolved.is_dir() and (
+                (resolved / "kustomization.yaml").exists()
+                or (resolved / "kustomization.yml").exists()
+            ):
+                # Resolved to another kustomize overlay/base directory.
+                edges.append(
+                    {
+                        "from": overlay_id,
+                        "to": f"kustomize/{rel_posix(resolved, self._root)}",
+                        "type": "extends",
+                        "confidence": 1.0,
+                        "provenance": "EXTRACTED",
+                    }
+                )
+            # else: unresolved (remote/URL/missing) — the stub node and its
+            # `extends` edge were already emitted inline in parse_kustomize.
+        self._helm._kustomize_pending = []
+        return edges
