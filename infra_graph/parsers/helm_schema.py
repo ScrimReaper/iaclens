@@ -170,6 +170,11 @@ class HelmParser:
                 resolved = (overlay_dir / ref).resolve()
                 self._kustomize_pending.append((overlay_id, overlay_dir, ref, resolved))
 
+                if resolved.exists():
+                    # Resolvable to a real file/dir: YAMLParser.finalize() links
+                    # this to the real workload node (or base overlay) instead.
+                    continue
+
                 ref_name = ref.rstrip("/").split("/")[-1]
                 ref_id = f"kustomize/{ref_name}"
                 nodes.append(

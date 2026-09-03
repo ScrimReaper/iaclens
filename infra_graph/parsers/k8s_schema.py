@@ -218,7 +218,9 @@ class KubernetesParser:
             new_edges = self._extract_edges(kind, api_version, node_id, spec, namespace, metadata, doc)
             edges.extend(new_edges)
 
-        self._file_nodes[str(path)] = [n["id"] for n in nodes]
+        # Resolved so the key matches HelmParser's resolved kustomize refs
+        # regardless of whether the caller passed an already-resolved path.
+        self._file_nodes[str(path.resolve())] = [n["id"] for n in nodes]
         return {"nodes": nodes, "edges": edges}
 
     def file_nodes(self) -> dict[str, list[str]]:
