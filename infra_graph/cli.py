@@ -14,20 +14,16 @@ Commands:
 
 from __future__ import annotations
 
-import importlib.metadata
 import sys
 from pathlib import Path
 
 import click
 
+from infra_graph import __version__
+
 from .graph.blast_radius import find_path, get_blast_radius
 from .graph.builder import GraphBuilder
 from .graph.report import generate_report
-
-try:
-    __version__ = importlib.metadata.version("iaclens")
-except importlib.metadata.PackageNotFoundError:  # running from a source tree
-    __version__ = "0.3.1"
 
 
 def _get_builder(project_root: Path) -> GraphBuilder:
