@@ -2,7 +2,7 @@
 infra-graph CLI entry point.
 
 Commands:
-  build <path> [--update] [--mode deep] [--watch]
+  build <path> [--update] [--watch]
   query "<question>"
   blast-radius <node_id_or_file>
   path <from> <to>
@@ -49,12 +49,10 @@ def cli() -> None:
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option("--update", is_flag=True, help="Incremental update (skip unchanged files)")
-@click.option("--mode", default="standard", type=click.Choice(["standard", "deep"]),
-              help="deep uses graspologic Leiden for community detection")
 @click.option("--watch", is_flag=True, help="Watch for file changes and auto-rebuild")
 @click.option("--format", "fmt", default="toon", type=click.Choice(["toon", "json"]),
               help="Output graph format (default: toon)")
-def build(path: str, update: bool, mode: str, watch: bool, fmt: str) -> None:
+def build(path: str, update: bool, watch: bool, fmt: str) -> None:
     """Build or update the infrastructure knowledge graph."""
     project_root = Path(path).resolve()
     builder = GraphBuilder(project_root)

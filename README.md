@@ -146,7 +146,6 @@ infra-graph build ./terraform         # only Terraform files
 infra-graph build ./k8s               # only Kubernetes manifests
 infra-graph build . --update          # re-parse only files that changed (fast)
 infra-graph build . --watch           # auto-rebuild on every file save
-infra-graph build . --mode deep       # add optional LLM semantic annotations
 ```
 
 After each build, `GRAPH_REPORT.md` is written with:
@@ -305,7 +304,6 @@ infra-graph build . --format json     # opt in to legacy graph.json
 infra-graph build .                     # full build (writes graph.toon by default)
 infra-graph build . --format json       # opt in to legacy graph.json output
 infra-graph build . --update            # incremental (only changed files)
-infra-graph build . --mode deep         # with optional LLM annotation
 infra-graph build . --watch             # auto-rebuild on file saves
 
 # Federate multiple repo graphs
@@ -348,8 +346,6 @@ infra-graph install --federated ./federated-graph.toon    # add dual-graph MCP e
 
 > **Small repo note:** For repos under ~20 files, graph overhead can exceed raw file size. infra-graph pays off at scale — when questions span multiple files and change frequently.
 
-*Reproduce with `infra-graph eval --all`.*
-
 ---
 
 ## How it works
@@ -360,11 +356,8 @@ Terraform files are parsed with `python-hcl2`. YAML files are parsed with `ruame
 **Pass 2 — Schema-aware inference (no LLM)**
 Kubernetes label-selector matching runs as a cross-file sweep: a label inverted index is built, then Service selectors are matched against Deployment labels to create `routes_to` edges. ArgoCD cluster generator `matchLabels` are matched against cluster Secrets. Helm and Kustomize overlay relationships are detected as `extends`/`patches` edges.
 
-**Pass 3 — Optional LLM annotation (`--mode deep`)**
-Claude annotates communities with human-readable names, extracts design rationale from comments, and enriches report summaries. Not required for token savings — the structural graph alone delivers the reduction numbers above.
-
 **Output — TOON serialization**
-After all three passes, the graph is serialized to `graph.toon` using TOON (Token-Oriented Object Notation). Uniform arrays (node lists, edge lists) are encoded in a compact tabular form that is ~40% smaller in token count than equivalent JSON. Use `--format json` to opt in to the legacy format.
+After both passes, the graph is serialized to `graph.toon` using TOON (Token-Oriented Object Notation). Uniform arrays (node lists, edge lists) are encoded in a compact tabular form that is ~40% smaller in token count than equivalent JSON. Use `--format json` to opt in to the legacy format.
 
 **Optional — Federation pass (`infra-graph federate`)**
 Graphs from multiple repositories can be merged into a single `federated-graph.toon` using three resolution strategies: exact node ID match, fuzzy prefix-strip + type match, and attribute/value match (ArgoCD cluster `server_url` → Terraform cluster resource). See [Graph Federation](#graph-federation) for details.
@@ -386,7 +379,7 @@ infra_graph/
 ├── graph/
 │   ├── builder.py            # NetworkX DiGraph + SHA-256 file cache
 │   ├── blast_radius.py       # BFS impact traversal
-│   ├── community.py          # Leiden clustering (graspologic) + fallback
+│   ├── community.py          # community detection clustering + fallback
 │   ├── report.py             # GRAPH_REPORT.md generator
 │   ├── toon.py               # TOON serializer/deserializer (default output format)
 │   └── federation.py         # multi-repo graph federation engine
@@ -402,7 +395,7 @@ infra_graph/
 └── cli.py                    # click CLI
 ```
 
-**Privacy:** All parsing happens locally. No file contents leave your machine except during the optional `--mode deep` LLM pass, which uses your own API key. No telemetry. No cloud.
+**Privacy:** All parsing happens locally. No file contents leave your machine. No telemetry. No cloud.
 
 ---
 
