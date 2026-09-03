@@ -5,3 +5,27 @@
       - curl
       - vim
     state: present
+
+- name: Run setup block
+  block:
+    - name: Include setup tasks
+      include_tasks: setup.yml
+  rescue:
+    - name: Handle setup failure
+      debug:
+        msg: setup failed
+  always:
+    - name: Always announce
+      debug:
+        msg: block finished
+
+- name: Import extra tasks
+  import_tasks: extra.yml
+
+- name: Pull in the webserver role
+  include_role:
+    name: nginx
+
+- name: Statically import the postgres role
+  import_role:
+    name: postgres

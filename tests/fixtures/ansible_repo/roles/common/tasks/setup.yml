@@ -1,0 +1,4 @@
+---
+- name: Setup step
+  debug:
+    msg: setup running

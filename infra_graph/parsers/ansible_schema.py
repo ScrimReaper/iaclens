@@ -68,6 +68,17 @@ class AnsibleParser:
         self._plays: dict[str, dict] = {}  # play_id -> play node
         self._role_uses: list[tuple[str, str]] = []  # (play_id, role_name)
 
+        # (owner_id, including_file_dir, ref, edge_type) — resolved in finalize()
+        # once every file's task_file id is known, so path-only includes
+        # (e.g. `include_tasks: setup.yml`) resolve to the qualified id
+        # regardless of parse order.
+        self._include_pending: list[tuple[str, Path, str, str]] = []
+        # (owner_id, role_name) for include_role/import_role — role ids don't
+        # depend on parse order, but we still resolve in finalize() so the
+        # role node is guaranteed to exist even if referenced before any of
+        # its own files are parsed.
+        self._include_role_pending: list[tuple[str, str]] = []
+
     def is_ansible_file(self, path: Path) -> bool:
         """Return True if the file appears to be an Ansible playbook or task file."""
         if path.suffix not in (".yml", ".yaml"):
@@ -100,10 +111,18 @@ class AnsibleParser:
     def finalize(self) -> list[dict]:
         """Resolve cross-file references collected while parsing.
 
-        Task 1 scope: role -> task_file (`has_task`) for every task file
-        discovered under `roles/<name>/tasks/`.
+        - role -> task_file (`has_task`) for every task file discovered
+          under `roles/<name>/tasks/` (Task 1).
+        - include_tasks/import_tasks -> task_file, resolved by path relative
+          to the including file's directory (Task 2).
+        - include_role/import_role -> role (Task 2).
+
+        Idempotent: pending lists are cleared after resolution, so a second
+        `finalize()` call (or a stray double-call from a caller) emits no
+        duplicate edges.
         """
         edges: list[dict] = []
+
         for role_name, task_file_id in self._role_task_pending:
             role_id = self._ensure_role(role_name)
             edges.append({
@@ -113,6 +132,46 @@ class AnsibleParser:
                 "confidence": 1.0,
                 "provenance": "EXTRACTED",
             })
+        self._role_task_pending.clear()
+
+        for owner_id, including_dir, ref, edge_type in self._include_pending:
+            target_path = (including_dir / ref).resolve()
+            target_rel = rel_posix(target_path, self._root)
+            target_id = f"task_file/{target_rel}"
+            if target_id not in self._task_files:
+                # Stub node: the include target was never parsed as its own
+                # file (missing, or outside the walked tree) — still emit the
+                # edge, but make sure `target_id` resolves to *something*.
+                self._task_files[target_id] = {
+                    "id": target_id,
+                    "type": "task_file",
+                    "kind": "ansible_task_file",
+                    "name": target_path.stem,
+                    "file": None,
+                    "line": None,
+                    "labels": {},
+                    "community_id": None,
+                }
+            edges.append({
+                "from": owner_id,
+                "to": target_id,
+                "type": edge_type,
+                "confidence": 1.0,
+                "provenance": "EXTRACTED",
+            })
+        self._include_pending.clear()
+
+        for owner_id, role_name in self._include_role_pending:
+            role_id = self._ensure_role(role_name)
+            edges.append({
+                "from": owner_id,
+                "to": role_id,
+                "type": "includes_role",
+                "confidence": 1.0,
+                "provenance": "EXTRACTED",
+            })
+        self._include_role_pending.clear()
+
         return edges
 
     # ── Playbook ───────────────────────────────────────────────────────────────
@@ -173,7 +232,7 @@ class AnsibleParser:
             for section in ("tasks", "pre_tasks", "post_tasks"):
                 for task in play.get(section) or []:
                     nodes_new, edges_new = self._extract_task_includes(
-                        task, play_id, seen_ids, file_str
+                        task, play_id, seen_ids, file_str, path.parent
                     )
                     nodes.extend(nodes_new)
                     seen_ids.update(n["id"] for n in nodes_new)
@@ -212,7 +271,7 @@ class AnsibleParser:
 
         for task in tasks:
             nodes_new, edges_new = self._extract_task_includes(
-                task, task_file_id, seen_ids, file_str
+                task, task_file_id, seen_ids, file_str, path.parent
             )
             nodes.extend(nodes_new)
             seen_ids.update(n["id"] for n in nodes_new)
@@ -261,24 +320,38 @@ class AnsibleParser:
             return entry.get("role") or entry.get("name")
         return None
 
-    @staticmethod
+    _INCLUDE_EDGE_TYPES = {
+        "include_tasks": "includes_tasks",
+        "import_tasks": "imports_tasks",
+    }
+
     def _extract_task_includes(
+        self,
         task: Any,
         owner_id: str,
         seen_ids: set[str],
         file_str: str,
+        task_dir: Path,
     ) -> tuple[list[dict], list[dict]]:
-        """Return (new_nodes, new_edges) for include_tasks/import_tasks in a task.
+        """Record include_tasks/import_tasks/include_role/import_role found in
+        `task` as pending references (resolved in `finalize()`), recursing
+        into `block`/`rescue`/`always` so nested includes are found too.
 
-        Path resolution relative to the including file's directory (and block/
-        rescue/always recursion) lands in WS1 Task 2; this keeps the naive
-        stem-based target id for now.
+        `task_dir` is the directory of the file `task` was parsed from — the
+        base for resolving `include_tasks`/`import_tasks` `ref` values, which
+        Ansible resolves relative to the including file, not the repo root.
+
+        No nodes/edges are emitted directly here: everything routes through
+        `self._include_pending` / `self._include_role_pending` so a target's
+        path-qualified id is only computed once, in `finalize()`, after every
+        real file has had a chance to register its own task_file id.
         """
         nodes: list[dict] = []
         edges: list[dict] = []
         if not isinstance(task, dict):
             return nodes, edges
-        for inc_key in ("include_tasks", "import_tasks"):
+
+        for inc_key, edge_type in self._INCLUDE_EDGE_TYPES.items():
             ref = task.get(inc_key)
             if not ref:
                 continue
@@ -286,24 +359,29 @@ class AnsibleParser:
                 ref = ref.get("file") or ref.get("name")
             if not ref:
                 continue
-            target_stem = Path(str(ref)).stem
-            target_id = f"task_file/{target_stem}"
-            if target_id not in seen_ids:
-                nodes.append({
-                    "id": target_id,
-                    "type": "task_file",
-                    "kind": "ansible_task_file",
-                    "name": target_stem,
-                    "file": None,
-                    "line": None,
-                    "labels": {},
-                    "community_id": None,
-                })
-            edges.append({
-                "from": owner_id,
-                "to": target_id,
-                "type": "includes_tasks",
-                "confidence": 1.0,
-                "provenance": "EXTRACTED",
-            })
+            self._include_pending.append((owner_id, task_dir, str(ref), edge_type))
+
+        for role_key in ("include_role", "import_role"):
+            entry = task.get(role_key)
+            if not entry:
+                continue
+            role_name = self._role_name(entry)
+            if role_name:
+                self._include_role_pending.append((owner_id, role_name))
+
+        # block/rescue/always each hold a nested task list; recurse so an
+        # include buried in any of them is still found. Nested includes stay
+        # attributed to the same owner (the containing task_file/play) —
+        # this schema doesn't model individual task nodes.
+        for block_key in ("block", "rescue", "always"):
+            nested = task.get(block_key)
+            if not isinstance(nested, list):
+                continue
+            for sub_task in nested:
+                nodes_new, edges_new = self._extract_task_includes(
+                    sub_task, owner_id, seen_ids, file_str, task_dir
+                )
+                nodes.extend(nodes_new)
+                edges.extend(edges_new)
+
         return nodes, edges
