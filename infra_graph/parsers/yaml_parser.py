@@ -63,7 +63,7 @@ class YAMLParser:
         self._k8s = KubernetesParser()
         self._actions = ActionsParser()
         self._compose = ComposeParser()
-        self._helm = HelmParser()
+        self._helm = HelmParser(self._root)
         self._ansible = AnsibleParser(self._root)
 
     @property

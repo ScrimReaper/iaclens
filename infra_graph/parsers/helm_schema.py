@@ -8,12 +8,20 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
+from ._ids import rel_posix
+
 _yaml = YAML()
 _yaml.preserve_quotes = True
 
 
 class HelmParser:
     """Parse Helm Chart.yaml, values*.yaml, and kustomization.yaml files."""
+
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root.resolve()
+        # Pending kustomize resources/bases refs, resolved in YAMLParser.finalize
+        # (Task 2): list of (overlay_id, overlay_dir, ref_string, resolved_abs_path)
+        self._kustomize_pending: list[tuple[str, Path, str, Path]] = []
 
     def is_chart_file(self, path: Path) -> bool:
         return path.name == "Chart.yaml"
@@ -137,8 +145,9 @@ class HelmParser:
         if not isinstance(doc, dict):
             return {"nodes": nodes, "edges": edges}
 
-        overlay_name = str(path.parent.name)
-        overlay_id = f"kustomize/{overlay_name}"
+        overlay_dir = path.parent
+        overlay_name = str(overlay_dir.name)
+        overlay_id = f"kustomize/{rel_posix(overlay_dir, self._root)}"
 
         nodes.append(
             {
@@ -158,6 +167,9 @@ class HelmParser:
             for ref in doc.get(key) or []:
                 if not isinstance(ref, str):
                     continue
+                resolved = (overlay_dir / ref).resolve()
+                self._kustomize_pending.append((overlay_id, overlay_dir, ref, resolved))
+
                 ref_name = ref.rstrip("/").split("/")[-1]
                 ref_id = f"kustomize/{ref_name}"
                 nodes.append(
@@ -185,13 +197,15 @@ class HelmParser:
         # patches
         for patch in doc.get("patches") or doc.get("patchesStrategicMerge") or []:
             if isinstance(patch, str):
-                patch_name = patch.rstrip("/").split("/")[-1]
+                patch_path = patch
             elif isinstance(patch, dict):
-                patch_name = (patch.get("path") or "").rstrip("/").split("/")[-1]
+                patch_path = patch.get("path") or ""
             else:
                 continue
+            patch_name = patch_path.rstrip("/").split("/")[-1]
             if patch_name:
-                patch_id = f"kustomize_patch/{patch_name}"
+                resolved_patch = (overlay_dir / patch_path).resolve()
+                patch_id = f"kustomize_patch/{rel_posix(resolved_patch, self._root)}"
                 nodes.append(
                     {
                         "id": patch_id,
