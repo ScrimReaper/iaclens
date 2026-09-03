@@ -172,25 +172,25 @@ class TestAnsiblePlaybook:
 
 class TestGenericYamlFallback:
     def test_creates_config_node(self):
-        parser = YAMLParser()
+        parser = YAMLParser(FIXTURES)
         result = parser.parse_file(FIXTURES / "generic_config.yaml")
         node_ids = {n["id"] for n in result["nodes"]}
         assert "config/generic_config" in node_ids
 
     def test_node_type_is_config(self):
-        parser = YAMLParser()
+        parser = YAMLParser(FIXTURES)
         result = parser.parse_file(FIXTURES / "generic_config.yaml")
         types = {n["type"] for n in result["nodes"]}
         assert "config" in types
 
     def test_no_edges(self):
-        parser = YAMLParser()
+        parser = YAMLParser(FIXTURES)
         result = parser.parse_file(FIXTURES / "generic_config.yaml")
         assert result["edges"] == []
 
     def test_k8s_file_not_treated_as_generic(self):
         """Proper K8s files must go through the K8s parser, not the fallback."""
-        parser = YAMLParser()
+        parser = YAMLParser(FIXTURES)
         result = parser.parse_file(FIXTURES / "k8s_deployment.yaml")
         types = {n["type"] for n in result["nodes"]}
         assert "config" not in types

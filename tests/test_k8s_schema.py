@@ -178,7 +178,7 @@ def test_argocd_applicationset_member_of_edge(argocd_result):
 
 def test_helm_template_stripping():
     """Helm template directives should be stripped before K8s parse."""
-    parser = YAMLParser()
+    parser = YAMLParser(FIXTURES)
     result = parser.parse_file(FIXTURES / "helm_template.yaml")
     # AppProject should be extracted even though name was a Helm expression
     node_types = {n["type"] for n in result["nodes"]}

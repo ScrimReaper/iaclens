@@ -57,7 +57,8 @@ def _strip_helm_directives(text: str) -> str:
 class YAMLParser:
     """Dispatching parser for all YAML-based infrastructure files."""
 
-    def __init__(self) -> None:
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root.resolve()
         self._k8s = KubernetesParser()
         self._actions = ActionsParser()
         self._compose = ComposeParser()

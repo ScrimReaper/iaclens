@@ -11,7 +11,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.fixture()
 def tf_result():
-    parser = TerraformParser()
+    parser = TerraformParser(FIXTURES)
     return parser.parse_file(FIXTURES / "sample.tf")
 
 
@@ -140,7 +140,7 @@ def test_dynamic_ref_edges(tf_result):
 
 def test_parse_nonexistent_file():
     """Parsing a nonexistent file should return empty nodes/edges (not crash)."""
-    parser = TerraformParser()
+    parser = TerraformParser(FIXTURES)
     result = parser.parse_file(Path("/nonexistent/path.tf"))
     assert result["nodes"] == []
     assert result["edges"] == []
