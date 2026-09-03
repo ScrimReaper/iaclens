@@ -30,6 +30,17 @@ class ComposeParser:
 
         try:
             text = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            warnings.warn(f"[compose_schema] Cannot read {path}: {exc}")
+            return {"nodes": nodes, "edges": edges}
+
+        # A Jinja-templated compose file (e.g. an Ansible role's
+        # roles/*/templates/docker-compose.yml) is a template, not a real
+        # compose file — it is not valid YAML. Skip it quietly.
+        if "{%" in text or "templates" in path.parts:
+            return {"nodes": nodes, "edges": edges}
+
+        try:
             doc = _yaml.load(text)
         except Exception as exc:
             warnings.warn(f"[compose_schema] Failed to parse {path}: {exc}")
