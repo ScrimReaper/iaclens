@@ -9,6 +9,8 @@ from typing import Any
 
 import hcl2
 
+from ._ids import qualified, rel_posix
+
 # Regex to extract ${...} interpolations
 _INTERP_RE = re.compile(r"\$\{([^}]+)\}")
 
@@ -31,11 +33,13 @@ def _strip_quotes(s: str) -> str:
     return m.group(1) if m else s
 
 
-def _normalize_dep(dep: str) -> str:
+def _normalize_dep(dep: str, d: str) -> str:
     """
-    Normalize a depends_on value to a resource node ID.
-    Handles: ${aws_vpc.main} → resource.aws_vpc.main
-             aws_vpc.main   → resource.aws_vpc.main
+    Normalize a depends_on value to a directory-qualified node ID, resolved
+    within directory `d` (Terraform references are directory/module scoped).
+    Handles: ${aws_vpc.main} → resource/<d>#aws_vpc.main
+             aws_vpc.main   → resource/<d>#aws_vpc.main
+             var.x / local.x / data.t.n / module.m → same-dir qualified ids.
     """
     dep = dep.strip()
     # Strip ${...} wrapper
@@ -44,14 +48,26 @@ def _normalize_dep(dep: str) -> str:
         dep = m.group(1).strip()
     # Strip quotes
     dep = _strip_quotes(dep)
-    # If it's already qualified (resource.type.name), return as-is
-    if dep.startswith(("resource.", "module.", "data.", "var.", "local.")):
-        return dep
-    # Otherwise assume it's type.name → resource.type.name
+
+    if dep.startswith("var."):
+        return qualified("variable", d, dep[len("var.") :])
+    if dep.startswith("local."):
+        return qualified("local", d, dep[len("local.") :])
+    if dep.startswith("data."):
+        parts = dep.split(".", 2)
+        if len(parts) >= 3:
+            return qualified("data", d, f"{parts[1]}.{parts[2]}")
+        return qualified("data", d, dep[len("data.") :])
+    if dep.startswith("module."):
+        parts = dep.split(".")
+        name = parts[1] if len(parts) >= 2 else dep[len("module.") :]
+        return qualified("module", d, name)
+
+    # Otherwise assume it's type.name → resource
     parts = dep.split(".")
     if len(parts) >= 2:
-        return f"resource.{parts[0]}.{parts[1]}"
-    return dep
+        return qualified("resource", d, f"{parts[0]}.{parts[1]}")
+    return qualified("resource", d, dep)
 
 
 def _extract_interpolations(value: Any) -> list[str]:
@@ -69,31 +85,36 @@ def _extract_interpolations(value: Any) -> list[str]:
     return results
 
 
-def _classify_interp(expr: str) -> tuple[str, str]:
-    """Return (edge_type, target_id) for an interpolation expression."""
+def _classify_interp(expr: str, d: str) -> tuple[str, str]:
+    """Return (edge_type, target_id) for an interpolation expression, with
+    the reference resolved within directory `d` (Terraform references are
+    directory/module scoped). `module.<m>.<out>` is not yet resolved to the
+    child module's directory here (Task 2); it falls through to the generic
+    dotted-reference fallback and is qualified in `d` like everything else,
+    without crashing."""
     if _DYNAMIC_RE.search(expr):
         return ("dynamic_ref", expr)
 
     m = _VAR_RE.match(expr)
     if m:
-        return ("uses_var", f"variable.{m.group(1)}")
+        return ("uses_var", qualified("variable", d, m.group(1)))
 
     m = _DATA_RE.match(expr)
     if m:
-        return ("uses_data", f"data.{m.group(1)}.{m.group(2)}")
+        return ("uses_data", qualified("data", d, f"{m.group(1)}.{m.group(2)}"))
 
     m = _LOCAL_RE.match(expr)
     if m:
-        return ("uses_local", f"local.{m.group(1)}")
+        return ("uses_local", qualified("local", d, m.group(1)))
 
     m = _RESOURCE_RE.match(expr)
     if m:
-        return ("references", f"resource.{m.group(1)}.{m.group(2)}")
+        return ("references", qualified("resource", d, f"{m.group(1)}.{m.group(2)}"))
 
     # Fallback: type.name (2-segment, like aws_vpc.main)
     parts = expr.split(".")
     if len(parts) >= 2:
-        return ("references", f"resource.{parts[0]}.{parts[1]}")
+        return ("references", qualified("resource", d, f"{parts[0]}.{parts[1]}"))
 
     return ("references", expr)
 
@@ -123,6 +144,10 @@ class TerraformParser:
             return {"nodes": nodes, "edges": edges}
 
         file_str = str(path)
+        # Directory-qualify every node/reference in this file to its module
+        # directory `d` (root-level files → "."), so same-named blocks in
+        # different module directories don't collide.
+        d = rel_posix(path.parent, self._root)
 
         # ── resource blocks ─────────────────────────────────────────────────
         for resource_block in data.get("resource", []):
@@ -130,7 +155,7 @@ class TerraformParser:
                 res_type = _strip_quotes(res_type_raw)
                 for res_name_raw, body in instances.items():
                     res_name = _strip_quotes(res_name_raw)
-                    node_id = f"resource.{res_type}.{res_name}"
+                    node_id = qualified("resource", d, f"{res_type}.{res_name}")
                     nodes.append(
                         {
                             "id": node_id,
@@ -145,7 +170,7 @@ class TerraformParser:
                     )
                     # depends_on explicit
                     for dep in _flatten_list(body.get("depends_on", [])):
-                        dep_str = _normalize_dep(str(dep))
+                        dep_str = _normalize_dep(str(dep), d)
                         if dep_str:
                             edges.append(
                                 {
@@ -158,7 +183,7 @@ class TerraformParser:
                             )
                     # interpolation refs
                     for expr in _extract_interpolations(body):
-                        edge_type, target = _classify_interp(expr)
+                        edge_type, target = _classify_interp(expr, d)
                         if target and target != node_id:
                             edges.append(
                                 {
@@ -174,7 +199,7 @@ class TerraformParser:
         for var_block in data.get("variable", []):
             for var_name_raw, _body in var_block.items():
                 var_name = _strip_quotes(var_name_raw)
-                node_id = f"variable.{var_name}"
+                node_id = qualified("variable", d, var_name)
                 nodes.append(
                     {
                         "id": node_id,
@@ -193,7 +218,7 @@ class TerraformParser:
             for out_name_raw, body in out_block.items():
                 out_name = _strip_quotes(out_name_raw)
                 output_body = body if isinstance(body, dict) else {}
-                node_id = f"output.{out_name}"
+                node_id = qualified("output", d, out_name)
                 nodes.append(
                     {
                         "id": node_id,
@@ -208,7 +233,7 @@ class TerraformParser:
                     }
                 )
                 for expr in _extract_interpolations(body):
-                    edge_type, target = _classify_interp(expr)
+                    edge_type, target = _classify_interp(expr, d)
                     if target and target != node_id:
                         edges.append(
                             {
@@ -226,7 +251,7 @@ class TerraformParser:
                 data_type = _strip_quotes(data_type_raw)
                 for data_name_raw, body in instances.items():
                     data_name = _strip_quotes(data_name_raw)
-                    node_id = f"data.{data_type}.{data_name}"
+                    node_id = qualified("data", d, f"{data_type}.{data_name}")
                     nodes.append(
                         {
                             "id": node_id,
@@ -240,7 +265,7 @@ class TerraformParser:
                         }
                     )
                     for expr in _extract_interpolations(body):
-                        edge_type, target = _classify_interp(expr)
+                        edge_type, target = _classify_interp(expr, d)
                         if target and target != node_id:
                             edges.append(
                                 {
@@ -259,7 +284,7 @@ class TerraformParser:
                 # Skip internal hcl2 marker keys
                 if local_name.startswith("__") and local_name.endswith("__"):
                     continue
-                node_id = f"local.{local_name}"
+                node_id = qualified("local", d, local_name)
                 nodes.append(
                     {
                         "id": node_id,
@@ -273,7 +298,7 @@ class TerraformParser:
                     }
                 )
                 for expr in _extract_interpolations({local_name: body}):
-                    edge_type, target = _classify_interp(expr)
+                    edge_type, target = _classify_interp(expr, d)
                     if target and target != node_id:
                         edges.append(
                             {
@@ -289,7 +314,7 @@ class TerraformParser:
         for prov_block in data.get("provider", []):
             for prov_name_raw, _body in prov_block.items():
                 prov_name = _strip_quotes(prov_name_raw)
-                node_id = f"provider.{prov_name}"
+                node_id = qualified("provider", d, prov_name)
                 nodes.append(
                     {
                         "id": node_id,
@@ -307,7 +332,7 @@ class TerraformParser:
         for module_block in data.get("module", []):
             for mod_name_raw, body in module_block.items():
                 mod_name = _strip_quotes(mod_name_raw)
-                node_id = f"module.{mod_name}"
+                node_id = qualified("module", d, mod_name)
                 nodes.append(
                     {
                         "id": node_id,
@@ -326,7 +351,7 @@ class TerraformParser:
                     if key in skip_keys:
                         continue
                     for expr in _extract_interpolations(val):
-                        edge_type, target = _classify_interp(expr)
+                        edge_type, target = _classify_interp(expr, d)
                         if target and target != node_id:
                             edges.append(
                                 {
@@ -339,7 +364,7 @@ class TerraformParser:
                             )
                 # explicit depends_on
                 for dep in _flatten_list(body.get("depends_on", [])):
-                    dep_str = _normalize_dep(str(dep))
+                    dep_str = _normalize_dep(str(dep), d)
                     if dep_str:
                         edges.append(
                             {

@@ -51,9 +51,9 @@ def test_build_produces_edges(builder):
 
 def test_tf_resources_in_graph(builder):
     node_ids = set(builder.graph.nodes())
-    assert "resource.aws_vpc.main" in node_ids
-    assert "resource.aws_subnet.public" in node_ids
-    assert "resource.aws_instance.web_server" in node_ids
+    assert "resource/.#aws_vpc.main" in node_ids
+    assert "resource/.#aws_subnet.public" in node_ids
+    assert "resource/.#aws_instance.web_server" in node_ids
 
 
 def test_k8s_resources_in_graph(builder):
@@ -133,7 +133,7 @@ def test_incremental_update_reparsed_on_change(builder, tmp_project):
     builder2 = GraphBuilder(tmp_project)
     stats = builder2.build(update_only=True)
     assert stats["files_parsed"] >= 1
-    assert "resource.aws_s3_bucket.backup" in builder2.graph.nodes()
+    assert "resource/.#aws_s3_bucket.backup" in builder2.graph.nodes()
 
 
 def test_load_graph_roundtrip(builder, tmp_project):
@@ -153,7 +153,7 @@ def test_search(builder):
 
 
 def test_get_node(builder):
-    node = builder.get_node("resource.aws_vpc.main")
+    node = builder.get_node("resource/.#aws_vpc.main")
     assert node is not None
     assert node["type"] == "resource"
     assert node["kind"] == "aws_vpc"
@@ -167,8 +167,8 @@ def test_get_node_nonexistent(builder):
 # ── Blast radius tests ────────────────────────────────────────────────────────
 
 def test_blast_radius_basic(builder):
-    result = get_blast_radius(builder.graph, "resource.aws_vpc.main", max_depth=3)
-    assert result["root"] == "resource.aws_vpc.main"
+    result = get_blast_radius(builder.graph, "resource/.#aws_vpc.main", max_depth=3)
+    assert result["root"] == "resource/.#aws_vpc.main"
     assert result["total_affected"] >= 0
     assert "affected" in result
 
@@ -177,7 +177,7 @@ def test_blast_radius_downstream(builder):
     """aws_vpc.main is depended on by aws_subnet.public."""
     # We need to check upstream (who depends on vpc)
     result = get_blast_radius(
-        builder.graph, "resource.aws_vpc.main", max_depth=5, direction="upstream"
+        builder.graph, "resource/.#aws_vpc.main", max_depth=5, direction="upstream"
     )
     # Let's just verify the call doesn't crash and returns reasonable results
     assert isinstance(result["affected"], list)
@@ -190,14 +190,14 @@ def test_blast_radius_nonexistent(builder):
 
 def test_blast_radius_depth_respected(builder):
     """BFS should not exceed max_depth."""
-    result = get_blast_radius(builder.graph, "resource.aws_vpc.main", max_depth=1)
+    result = get_blast_radius(builder.graph, "resource/.#aws_vpc.main", max_depth=1)
     for item in result["affected"]:
         assert item["depth"] <= 1
 
 
 def test_blast_radius_edge_chain(builder):
     """Affected items should include edge chain."""
-    result = get_blast_radius(builder.graph, "resource.aws_vpc.main", max_depth=3)
+    result = get_blast_radius(builder.graph, "resource/.#aws_vpc.main", max_depth=3)
     for item in result["affected"]:
         assert "edge_chain" in item
         assert isinstance(item["edge_chain"], list)
@@ -205,18 +205,18 @@ def test_blast_radius_edge_chain(builder):
 
 def test_find_path_exists(builder):
     result = find_path(
-        builder.graph, "resource.aws_instance.web_server", "resource.aws_vpc.main"
+        builder.graph, "resource/.#aws_instance.web_server", "resource/.#aws_vpc.main"
     )
     # aws_instance → aws_subnet → aws_vpc (via depends_on / references)
     if result.get("error"):
         # Path might not exist depending on edge direction
         pytest.skip("No path found (may be directed graph direction issue)")
     assert result["length"] > 0
-    assert "resource.aws_vpc.main" in result["path"]
+    assert "resource/.#aws_vpc.main" in result["path"]
 
 
 def test_find_path_nonexistent_source(builder):
-    result = find_path(builder.graph, "does.not.exist", "resource.aws_vpc.main")
+    result = find_path(builder.graph, "does.not.exist", "resource/.#aws_vpc.main")
     assert "error" in result
 
 
