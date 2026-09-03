@@ -413,10 +413,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on adding new parsers and 
 
 ---
 
+## About this fork
+
+**iaclens** is a standalone, independently maintained fork of
+[infra-graph](https://github.com/vparab7/infra-graph) by Vedang Parab. It adds a
+reusable Nix flake and small fixes, and tracks upstream for further changes. The
+Python package and the `infra-graph` command keep their upstream names, so
+upstream changes merge cleanly.
+
+---
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
 
+Original work © Vedang Parab. Fork changes © the iaclens contributors.
+
 ---
 
-*Built by [Vedang Parab](mailto:parabvedang007@gmail.com)*
+*Originally built by [Vedang Parab](mailto:parabvedang007@gmail.com); fork maintained by [ScrimReaper](https://github.com/ScrimReaper).*
