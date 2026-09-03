@@ -110,3 +110,44 @@ def test_stop_cancels_pending_timer():
     s.notify("a.tf")
     s.stop()
     assert FakeTimer.pending[-1].cancelled is True
+
+
+def test_notify_after_stop_does_not_rearm():
+    """A .notify() after .stop() must be fully inert -- no new timer, no
+    rebuild -- so serve's shutdown path can't be re-armed by a straggling
+    filesystem event.
+    """
+    FakeTimer.pending = []
+    calls = []
+    s = RebuildScheduler(lambda: calls.append(1), debounce_ms=800, timer_factory=FakeTimer)
+    s.notify("a.tf")
+    s.stop()
+    timers_before = len(FakeTimer.pending)
+
+    s.notify("b.tf")
+    assert len(FakeTimer.pending) == timers_before  # no new timer armed
+
+    # even if a stray timer somehow fired, no rebuild should have run
+    assert calls == []
+
+
+def test_notify_after_stop_during_rebuild_does_not_schedule_followup():
+    """.stop() called while a rebuild is in flight must prevent the
+    in-flight rebuild's completion from arming a follow-up timer, even
+    though a notify() arrived mid-rebuild.
+    """
+    FakeTimer.pending = []
+    calls = []
+
+    def rebuild():
+        calls.append(1)
+        if len(calls) == 1:
+            s.notify("b.tf")  # arrives mid-rebuild
+            s.stop()  # shutdown races in before the rebuild finishes
+
+    s = RebuildScheduler(rebuild, debounce_ms=800, timer_factory=FakeTimer)
+    s.notify("a.tf")
+    FakeTimer.fire_latest()  # runs rebuild(); notify()+stop() happen inside
+    assert calls == [1]
+    # no follow-up timer should have been armed once stopped
+    assert len(FakeTimer.pending) == 1

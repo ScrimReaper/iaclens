@@ -79,6 +79,13 @@ iaclens serve
 
 This starts a local MCP stdio server. Point your assistant's MCP config at this command.
 
+`iaclens serve` builds the graph once on startup, then watches the repo and rebuilds automatically whenever a parseable file (`.tf`/`.yml`/`.yaml`) changes. Each rebuild is a full rebuild, debounced so a burst of saves collapses into one rebuild instead of many. Files under `iaclens-out/`, `.git/`, any dot-directory, or excluded by `.infraignore` never trigger a rebuild.
+
+Two environment variables control this:
+
+- `IACLENS_NO_WATCH` — set to disable auto-watching (serve only builds once on startup).
+- `IACLENS_WATCH_DEBOUNCE_MS` — debounce window in milliseconds (default `800`, clamped to `[100, 60000]`).
+
 ---
 
 ## What it parses
@@ -122,7 +129,6 @@ node_modules/
 ```bash
 iaclens build .                 # parse the repo and build the graph
 iaclens build . --update        # re-parse only changed files
-iaclens build . --watch         # rebuild automatically on file save
 iaclens build . --format json   # write graph.json instead of the default graph.toon
 
 iaclens serve                   # start the MCP stdio server

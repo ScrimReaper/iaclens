@@ -11,11 +11,20 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 MIN_DEBOUNCE_MS = 100
 MAX_DEBOUNCE_MS = 60000
 DEFAULT_DEBOUNCE_MS = 800
 DEBOUNCE_ENV_VAR = "IACLENS_WATCH_DEBOUNCE_MS"
+NO_WATCH_ENV_VAR = "IACLENS_NO_WATCH"
+
+# Extensions the builder's parsers actually consume (see graph/builder.py).
+PARSEABLE_EXTENSIONS = {".tf", ".yml", ".yaml"}
 
 
 def clamp_debounce_ms(raw: int) -> int:
@@ -43,7 +52,9 @@ class RebuildScheduler:
     - Only one rebuild runs at a time. A notify that arrives while a rebuild
       is running is recorded and triggers exactly one follow-up rebuild once
       the current one finishes.
-    - `.stop()`: cancels any pending timer.
+    - `.stop()`: cancels any pending timer and makes the scheduler
+      permanently inert -- a subsequent `.notify()` cannot re-arm a timer
+      or schedule a rebuild.
     """
 
     def __init__(
@@ -60,10 +71,17 @@ class RebuildScheduler:
         self._timer = None
         self._rebuilding = False
         self._pending_during_rebuild = False
+        self._stopped = False
 
     def notify(self, path: str | None = None) -> None:
-        """Cancel any pending timer and arm a new debounce window."""
+        """Cancel any pending timer and arm a new debounce window.
+
+        A no-op once `.stop()` has been called -- a straggling filesystem
+        event after shutdown must not re-arm a timer or schedule a rebuild.
+        """
         with self._lock:
+            if self._stopped:
+                return
             if self._rebuilding:
                 # A rebuild is in flight; remember to run exactly one more
                 # once it finishes, rather than arming a timer now (the
@@ -99,13 +117,102 @@ class RebuildScheduler:
         finally:
             with self._lock:
                 self._rebuilding = False
-                if self._pending_during_rebuild:
+                if self._pending_during_rebuild and not self._stopped:
                     self._pending_during_rebuild = False
                     self._arm_locked()
 
     def stop(self) -> None:
-        """Cancel any pending timer."""
+        """Cancel any pending timer and make the scheduler permanently inert.
+
+        After `.stop()`, `.notify()` is a no-op: it cannot re-arm a timer or
+        schedule a follow-up rebuild, even one already pending from a notify
+        that arrived while a rebuild was in flight.
+        """
         with self._lock:
+            self._stopped = True
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
+
+
+def _load_infraignore_spec(root: Path) -> Any:
+    """Load `.infraignore` from `root`, mirroring GraphBuilder's own logic."""
+    ignore_file = root / ".infraignore"
+    if not ignore_file.exists():
+        return None
+    try:
+        import pathspec
+
+        return pathspec.PathSpec.from_lines(
+            "gitwildmatch", ignore_file.read_text().splitlines()
+        )
+    except Exception:
+        return None
+
+
+def should_trigger(path: Path, root: Path) -> bool:
+    """True if a change to `path` (under `root`) should trigger a rebuild.
+
+    A file triggers a rebuild only if it is one the builder would actually
+    parse (`.tf`/`.yml`/`.yaml`), it is not under `iaclens-out/`, `.git/`,
+    or any dot-directory, and it is not excluded by the repo's
+    `.infraignore`. This keeps the watcher from ever rebuilding in a loop
+    off its own output.
+    """
+    path = Path(path)
+    if path.suffix not in PARSEABLE_EXTENSIONS:
+        return False
+
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+
+    for part in rel.parts[:-1]:
+        if part == "iaclens-out" or part.startswith("."):
+            return False
+
+    spec = _load_infraignore_spec(Path(root))
+    if spec is not None:
+        try:
+            if spec.match_file(str(rel)):
+                return False
+        except Exception:
+            pass
+
+    return True
+
+
+def start_watching(project_root: Path, builder: Any, scheduler: Any) -> Observer:
+    """Watch `project_root` for changes, notifying `scheduler` on each one.
+
+    Wires a `watchdog` handler that calls `scheduler.notify(path)` only for
+    files `should_trigger` accepts. Returns a started `Observer`; the
+    caller owns its lifecycle (`.stop()` + `.join()` on shutdown).
+    """
+    project_root = Path(project_root)
+
+    class _RebuildHandler(FileSystemEventHandler):
+        def _maybe_notify(self, src_path: str) -> None:
+            if should_trigger(Path(src_path), project_root):
+                scheduler.notify(src_path)
+
+        def on_modified(self, event) -> None:  # type: ignore[override]
+            if event.is_directory:
+                return
+            self._maybe_notify(event.src_path)
+
+        def on_created(self, event) -> None:  # type: ignore[override]
+            if event.is_directory:
+                return
+            self._maybe_notify(event.src_path)
+
+        def on_moved(self, event) -> None:  # type: ignore[override]
+            if event.is_directory:
+                return
+            self._maybe_notify(event.dest_path)
+
+    observer = Observer()
+    observer.schedule(_RebuildHandler(), str(project_root), recursive=True)
+    observer.start()
+    return observer
