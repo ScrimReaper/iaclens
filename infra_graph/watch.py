@@ -83,6 +83,14 @@ class RebuildScheduler:
     def _run(self) -> None:
         with self._lock:
             self._timer = None
+            if self._rebuilding:
+                # A rebuild is already in flight (e.g. a notify() re-armed a
+                # second timer before this one's .cancel() could take
+                # effect). Do NOT start a second concurrent rebuild; just
+                # record that one more run is owed once the current one
+                # finishes.
+                self._pending_during_rebuild = True
+                return
             self._rebuilding = True
             self._pending_during_rebuild = False
 

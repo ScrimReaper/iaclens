@@ -30,7 +30,18 @@ def test_burst_collapses_to_one_rebuild():
     s = RebuildScheduler(lambda: calls.append(1), debounce_ms=800, timer_factory=FakeTimer)
     for _ in range(5):
         s.notify("a.tf")  # burst: 5 notifies re-arm the single timer
-    FakeTimer.fire_latest()  # quiet window elapses once
+    assert len(FakeTimer.pending) == 5
+    # every superseded timer must actually have been cancelled by the burst;
+    # only the last one (the one that will really fire) survives uncancelled
+    for t in FakeTimer.pending[:-1]:
+        assert t.cancelled is True
+    assert FakeTimer.pending[-1].cancelled is False
+    # firing every pending timer (each respecting its own cancellation, like
+    # real threading.Timer instances would) must still yield exactly one
+    # rebuild call -- this goes red if the .cancel() call were ever removed
+    for t in FakeTimer.pending:
+        if not t.cancelled:
+            t.fn()
     assert calls == [1]  # exactly one rebuild
 
 
@@ -55,6 +66,39 @@ def test_notify_during_rebuild_schedules_one_followup():
     FakeTimer.fire_latest()  # runs rebuild(), which notifies again mid-run
     assert calls == [1]
     # exactly one follow-up timer should now be pending
+    FakeTimer.fire_latest()
+    assert calls == [1, 1]
+
+
+def test_run_guards_against_concurrent_second_timer_firing():
+    """Reproduces the documented race: threading.Timer.cancel() is a no-op
+    once the timer has already committed to firing, so notify() can end up
+    having armed a second timer that fires while the first rebuild is still
+    running. _run() must treat that as "one more rebuild owed", not start a
+    second concurrent rebuild.
+    """
+    FakeTimer.pending = []
+    calls = []
+    second_timer = None
+
+    def rebuild():
+        calls.append(1)
+        if len(calls) == 1:
+            # Simulate the second timer's callback firing (e.g. on its own
+            # thread) while this first rebuild is still in flight.
+            second_timer.fn()
+
+    s = RebuildScheduler(rebuild, debounce_ms=800, timer_factory=FakeTimer)
+    s.notify("a.tf")
+    first_timer = FakeTimer.pending[-1]
+    # Simulate notify()'s cancel() being a no-op: a second timer still gets
+    # armed even though the first "should" have been superseded.
+    second_timer = FakeTimer(0.8, s._run)
+
+    first_timer.fn()  # starts the rebuild; rebuild() fires second_timer mid-run
+    assert calls == [1]  # NOT [1, 1] -- no concurrent second rebuild call
+
+    # exactly one follow-up rebuild should now be queued
     FakeTimer.fire_latest()
     assert calls == [1, 1]
 
