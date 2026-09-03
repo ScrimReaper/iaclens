@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "iaclens"
-version = "0.4.0"
+version = "0.5.0"
 description = "Knowledge graph plugin for Terraform, Kubernetes, GitHub Actions, and Docker Compose infrastructure files"
 readme = "README.md"
 requires-python = ">=3.10"

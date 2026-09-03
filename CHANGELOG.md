@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-09-03
+
+Parser improvements. The graph now models real relationships instead of colliding on names.
+
+### Added
+- Path-qualified node IDs across parsers, so same-named resources in different directories no longer collide.
+- Ansible: full parser rewrite. Roles link to their tasks, handlers, and vars. `notify` links to handlers. `include_tasks`/`import_tasks`/`include_role` resolve by path. `meta` dependencies link roles. `block`/`rescue`/`always` are followed. Playbooks no longer collapse every `roles/*/tasks/main.yml` onto one node.
+- Terraform/OpenTofu: directory-qualified IDs (variables no longer collide across modules). Module `source` resolves to the child module directory. `module.<x>.<output>` resolves to the child output. `for_each`/`count` are recorded. Line numbers appear when the HCL parser exposes them.
+- Kustomize: `resources:`/`bases:` entries link to the real workload nodes. Overlay IDs are directory-qualified.
+
+### Changed
+- README rewritten in plain language. SECURITY.md reporting contact updated.
+
 ## [0.4.0] — 2026-09-03
 
 Forked from infra-graph. Added a reusable Nix flake; renamed the command and package to
