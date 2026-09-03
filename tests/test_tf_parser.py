@@ -24,36 +24,36 @@ def test_parse_returns_nodes_and_edges(tf_result):
 
 def test_resource_nodes_extracted(tf_result):
     node_ids = {n["id"] for n in tf_result["nodes"]}
-    assert "resource.aws_vpc.main" in node_ids
-    assert "resource.aws_subnet.public" in node_ids
-    assert "resource.aws_instance.web_server" in node_ids
+    assert "resource/.#aws_vpc.main" in node_ids
+    assert "resource/.#aws_subnet.public" in node_ids
+    assert "resource/.#aws_instance.web_server" in node_ids
 
 
 def test_variable_nodes_extracted(tf_result):
     node_ids = {n["id"] for n in tf_result["nodes"]}
-    assert "variable.region" in node_ids
-    assert "variable.environment" in node_ids
+    assert "variable/.#region" in node_ids
+    assert "variable/.#environment" in node_ids
 
 
 def test_data_node_extracted(tf_result):
     node_ids = {n["id"] for n in tf_result["nodes"]}
-    assert "data.aws_ami.ubuntu" in node_ids
+    assert "data/.#aws_ami.ubuntu" in node_ids
 
 
 def test_output_nodes_extracted(tf_result):
     node_ids = {n["id"] for n in tf_result["nodes"]}
-    assert "output.vpc_id" in node_ids
-    assert "output.web_server_ip" in node_ids
+    assert "output/.#vpc_id" in node_ids
+    assert "output/.#web_server_ip" in node_ids
 
 
 def test_local_node_extracted(tf_result):
     node_ids = {n["id"] for n in tf_result["nodes"]}
-    assert "local.common_tags" in node_ids
+    assert "local/.#common_tags" in node_ids
 
 
 def test_provider_node_extracted(tf_result):
     node_ids = {n["id"] for n in tf_result["nodes"]}
-    assert "provider.aws" in node_ids
+    assert "provider/.#aws" in node_ids
 
 
 def test_depends_on_edges(tf_result):
@@ -66,9 +66,9 @@ def test_depends_on_edges(tf_result):
 
     edge_pairs = {(e["from"], e["to"]) for e in depends_edges}
     # aws_subnet.public depends_on aws_vpc.main
-    assert ("resource.aws_subnet.public", "resource.aws_vpc.main") in edge_pairs
+    assert ("resource/.#aws_subnet.public", "resource/.#aws_vpc.main") in edge_pairs
     # aws_instance.web_server depends_on aws_subnet.public
-    assert ("resource.aws_instance.web_server", "resource.aws_subnet.public") in edge_pairs
+    assert ("resource/.#aws_instance.web_server", "resource/.#aws_subnet.public") in edge_pairs
 
 
 def test_uses_var_edges(tf_result):
@@ -76,7 +76,7 @@ def test_uses_var_edges(tf_result):
     uses_var_edges = [e for e in tf_result["edges"] if e["type"] == "uses_var"]
     targets = {e["to"] for e in uses_var_edges}
     # var.environment is referenced in aws_vpc and aws_instance tags
-    assert "variable.environment" in targets
+    assert "variable/.#environment" in targets
 
 
 def test_uses_data_edges(tf_result):
@@ -84,14 +84,14 @@ def test_uses_data_edges(tf_result):
     uses_data_edges = [e for e in tf_result["edges"] if e["type"] == "uses_data"]
     assert len(uses_data_edges) >= 1
     targets = {e["to"] for e in uses_data_edges}
-    assert "data.aws_ami.ubuntu" in targets
+    assert "data/.#aws_ami.ubuntu" in targets
 
 
 def test_references_edges(tf_result):
     """aws_subnet.public references aws_vpc.main.id via interpolation."""
     ref_edges = [e for e in tf_result["edges"] if e["type"] == "references"]
     pairs = {(e["from"], e["to"]) for e in ref_edges}
-    assert ("resource.aws_subnet.public", "resource.aws_vpc.main") in pairs
+    assert ("resource/.#aws_subnet.public", "resource/.#aws_vpc.main") in pairs
 
 
 def test_node_schema(tf_result):
