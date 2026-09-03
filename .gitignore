@@ -90,3 +90,7 @@ infra_graph/viz/obsidian_export.py
 
 # Logs
 *.log
+
+# Nix build result symlinks
+result
+result-*
