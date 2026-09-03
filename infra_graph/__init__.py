@@ -1,3 +1,8 @@
 """iaclens: Knowledge graph for infrastructure files."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    __version__ = _pkg_version("iaclens")
+except PackageNotFoundError:  # running from a source tree
+    __version__ = "0.4.0"
