@@ -19,6 +19,7 @@ _VAR_RE = re.compile(r"^var\.(\w+)$")
 _DATA_RE = re.compile(r"^data\.(\w+)\.(\w+)")
 _LOCAL_RE = re.compile(r"^local\.(\w+)$")
 _RESOURCE_RE = re.compile(r"^(\w+)\.(\w+)\.")
+_MODULE_OUTPUT_RE = re.compile(r"^module\.(\w+)\.(\w+)")
 
 # Detect dynamic refs (string concatenation / complex expressions)
 _DYNAMIC_RE = re.compile(r"[+\-*/]|format\(|join\(")
@@ -61,6 +62,8 @@ def _normalize_dep(dep: str, d: str) -> str:
     if dep.startswith("module."):
         parts = dep.split(".")
         name = parts[1] if len(parts) >= 2 else dep[len("module.") :]
+        # An output-specific depends_on (module.<m>.<out>) collapses to a
+        # dependency on the whole module block, not the child output.
         return qualified("module", d, name)
 
     # Otherwise assume it's type.name → resource
@@ -88,10 +91,9 @@ def _extract_interpolations(value: Any) -> list[str]:
 def _classify_interp(expr: str, d: str) -> tuple[str, str]:
     """Return (edge_type, target_id) for an interpolation expression, with
     the reference resolved within directory `d` (Terraform references are
-    directory/module scoped). `module.<m>.<out>` is not yet resolved to the
-    child module's directory here (Task 2); it falls through to the generic
-    dotted-reference fallback and is qualified in `d` like everything else,
-    without crashing."""
+    directory/module scoped). `module.<m>.<out>` is handled separately by
+    callers (queued as a pending cross-module reference and resolved in
+    `TerraformParser.finalize()`), so it never reaches this function."""
     if _DYNAMIC_RE.search(expr):
         return ("dynamic_ref", expr)
 
@@ -124,6 +126,47 @@ class TerraformParser:
 
     def __init__(self, project_root: Path) -> None:
         self._root = project_root.resolve()
+        # module_id -> resolved child directory (None for non-local/registry
+        # sources), populated as module blocks are parsed across all files.
+        self._module_children: dict[str, str | None] = {}
+        # Pending cross-file resolution, drained by finalize():
+        #   modules:          (module_id, dir d, child dir or None, [input arg names])
+        #   module outputs:   (from_id, dir d, module name, output name)
+        self._pending_modules: list[tuple[str, str, str | None, list[str]]] = []
+        self._pending_module_outputs: list[tuple[str, str, str, str]] = []
+
+    def _resolve_interp_edges(
+        self,
+        node_id: str,
+        d: str,
+        exprs: list[str],
+        edge_type_override: str | None = None,
+    ) -> list[dict]:
+        """Classify each interpolation expression into an edge dict. A
+        `module.<m>.<out>` reference is not resolvable within a single file
+        (the child module may not be parsed yet), so it is queued as a
+        pending cross-module reference instead and resolved in `finalize()`.
+        """
+        out: list[dict] = []
+        for expr in exprs:
+            mo = _MODULE_OUTPUT_RE.match(expr)
+            if mo:
+                self._pending_module_outputs.append((node_id, d, mo.group(1), mo.group(2)))
+                continue
+            edge_type, target = _classify_interp(expr, d)
+            if edge_type_override:
+                edge_type = edge_type_override
+            if target and target != node_id:
+                out.append(
+                    {
+                        "from": node_id,
+                        "to": target,
+                        "type": edge_type,
+                        "confidence": 0.5 if edge_type == "dynamic_ref" else 1.0,
+                        "provenance": "AMBIGUOUS" if edge_type == "dynamic_ref" else "EXTRACTED",
+                    }
+                )
+        return out
 
     def parse_file(self, path: Path) -> dict[str, Any]:
         """
@@ -182,18 +225,9 @@ class TerraformParser:
                                 }
                             )
                     # interpolation refs
-                    for expr in _extract_interpolations(body):
-                        edge_type, target = _classify_interp(expr, d)
-                        if target and target != node_id:
-                            edges.append(
-                                {
-                                    "from": node_id,
-                                    "to": target,
-                                    "type": edge_type,
-                                    "confidence": 0.5 if edge_type == "dynamic_ref" else 1.0,
-                                    "provenance": "AMBIGUOUS" if edge_type == "dynamic_ref" else "EXTRACTED",
-                                }
-                            )
+                    edges.extend(
+                        self._resolve_interp_edges(node_id, d, _extract_interpolations(body))
+                    )
 
         # ── variable blocks ──────────────────────────────────────────────────
         for var_block in data.get("variable", []):
@@ -232,18 +266,9 @@ class TerraformParser:
                         "expression": str(output_body.get("value", "")),
                     }
                 )
-                for expr in _extract_interpolations(body):
-                    edge_type, target = _classify_interp(expr, d)
-                    if target and target != node_id:
-                        edges.append(
-                            {
-                                "from": node_id,
-                                "to": target,
-                                "type": edge_type,
-                                "confidence": 0.5 if edge_type == "dynamic_ref" else 1.0,
-                                "provenance": "AMBIGUOUS" if edge_type == "dynamic_ref" else "EXTRACTED",
-                            }
-                        )
+                edges.extend(
+                    self._resolve_interp_edges(node_id, d, _extract_interpolations(body))
+                )
 
         # ── data blocks ──────────────────────────────────────────────────────
         for data_block in data.get("data", []):
@@ -264,18 +289,9 @@ class TerraformParser:
                             "community_id": None,
                         }
                     )
-                    for expr in _extract_interpolations(body):
-                        edge_type, target = _classify_interp(expr, d)
-                        if target and target != node_id:
-                            edges.append(
-                                {
-                                    "from": node_id,
-                                    "to": target,
-                                    "type": edge_type,
-                                    "confidence": 0.5 if edge_type == "dynamic_ref" else 1.0,
-                                    "provenance": "AMBIGUOUS" if edge_type == "dynamic_ref" else "EXTRACTED",
-                                }
-                            )
+                    edges.extend(
+                        self._resolve_interp_edges(node_id, d, _extract_interpolations(body))
+                    )
 
         # ── locals blocks ────────────────────────────────────────────────────
         for locals_block in data.get("locals", []):
@@ -297,18 +313,11 @@ class TerraformParser:
                         "community_id": None,
                     }
                 )
-                for expr in _extract_interpolations({local_name: body}):
-                    edge_type, target = _classify_interp(expr, d)
-                    if target and target != node_id:
-                        edges.append(
-                            {
-                                "from": node_id,
-                                "to": target,
-                                "type": edge_type,
-                                "confidence": 0.5 if edge_type == "dynamic_ref" else 1.0,
-                                "provenance": "AMBIGUOUS" if edge_type == "dynamic_ref" else "EXTRACTED",
-                            }
-                        )
+                edges.extend(
+                    self._resolve_interp_edges(
+                        node_id, d, _extract_interpolations({local_name: body})
+                    )
+                )
 
         # ── provider blocks ──────────────────────────────────────────────────
         for prov_block in data.get("provider", []):
@@ -333,11 +342,19 @@ class TerraformParser:
             for mod_name_raw, body in module_block.items():
                 mod_name = _strip_quotes(mod_name_raw)
                 node_id = qualified("module", d, mod_name)
+                source_raw = body.get("source")
+                source = _strip_quotes(str(source_raw)) if source_raw is not None else None
+                # Only a local relative source resolves to a child module dir;
+                # registry/git sources have no on-disk child to link to.
+                child_dir: str | None = None
+                if source and (source.startswith("./") or source.startswith("../")):
+                    child_dir = rel_posix((path.parent / source).resolve(), self._root)
+                self._module_children[node_id] = child_dir
                 nodes.append(
                     {
                         "id": node_id,
                         "type": "module",
-                        "kind": body.get("source", "unknown"),
+                        "kind": source or "unknown",
                         "name": mod_name,
                         "file": file_str,
                         "line": None,
@@ -345,23 +362,26 @@ class TerraformParser:
                         "community_id": None,
                     }
                 )
-                # passes_input for each module argument (excluding source/version/providers)
+                # passes_input for each module argument (excluding source/version/providers).
+                # Same-dir targets (e.g. var.x in this file) are recorded here;
+                # finalize() additionally links each arg name to the CHILD
+                # module's own variable of that name, once source is resolved.
                 skip_keys = {"source", "version", "providers", "depends_on"}
+                arg_names: list[str] = []
+                input_exprs: list[str] = []
                 for key, val in body.items():
-                    if key in skip_keys:
+                    # Skip explicit meta-args and hcl2's internal __x__ markers
+                    # (e.g. __is_block__), which are not real module inputs.
+                    if key in skip_keys or (key.startswith("__") and key.endswith("__")):
                         continue
-                    for expr in _extract_interpolations(val):
-                        edge_type, target = _classify_interp(expr, d)
-                        if target and target != node_id:
-                            edges.append(
-                                {
-                                    "from": node_id,
-                                    "to": target,
-                                    "type": "passes_input",
-                                    "confidence": 1.0,
-                                    "provenance": "EXTRACTED",
-                                }
-                            )
+                    arg_names.append(key)
+                    input_exprs.extend(_extract_interpolations(val))
+                edges.extend(
+                    self._resolve_interp_edges(
+                        node_id, d, input_exprs, edge_type_override="passes_input"
+                    )
+                )
+                self._pending_modules.append((node_id, d, child_dir, arg_names))
                 # explicit depends_on
                 for dep in _flatten_list(body.get("depends_on", [])):
                     dep_str = _normalize_dep(str(dep), d)
@@ -377,6 +397,48 @@ class TerraformParser:
                         )
 
         return {"nodes": nodes, "edges": edges}
+
+    def finalize(self) -> list[dict]:
+        """
+        Call after every .tf file has been parsed. Resolves cross-directory
+        module references that a single-file pass cannot: a module's inputs
+        against its child module's variables, and `module.<m>.<out>` reads
+        against the child module's output. Edges-only; drains (clears) the
+        pending accumulators, so a second call returns nothing new.
+        """
+        edges: list[dict] = []
+
+        for module_id, _d, child_dir, arg_names in self._pending_modules:
+            if child_dir is None:
+                continue
+            for arg in arg_names:
+                edges.append(
+                    {
+                        "from": module_id,
+                        "to": qualified("variable", child_dir, arg),
+                        "type": "passes_input",
+                        "confidence": 1.0,
+                        "provenance": "EXTRACTED",
+                    }
+                )
+        self._pending_modules.clear()
+
+        for from_id, d, mod_name, out_name in self._pending_module_outputs:
+            child_dir = self._module_children.get(qualified("module", d, mod_name))
+            if child_dir is None:
+                continue
+            edges.append(
+                {
+                    "from": from_id,
+                    "to": qualified("output", child_dir, out_name),
+                    "type": "uses_module_output",
+                    "confidence": 1.0,
+                    "provenance": "EXTRACTED",
+                }
+            )
+        self._pending_module_outputs.clear()
+
+        return edges
 
 
 def _flatten_list(val: Any) -> list:

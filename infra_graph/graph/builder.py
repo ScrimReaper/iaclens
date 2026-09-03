@@ -214,6 +214,9 @@ class GraphBuilder:
         extra_edges = self._yaml_parser.finalize()
         all_edges.extend(extra_edges)
 
+        # Finalize Terraform (module source + module.<m>.<out> resolution)
+        all_edges.extend(self._tf_parser.finalize())
+
         # Deduplicate nodes (keep last seen, same id)
         node_map: dict[str, dict] = {}
         for n in all_nodes:

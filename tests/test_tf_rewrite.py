@@ -33,3 +33,19 @@ def test_var_ref_resolves_within_same_module():
         "variable/modules/net#region",
         "uses_var",
     ) in trip
+
+
+def test_module_output_ref_resolves_to_child_output():
+    p = TerraformParser(FX)
+    edges = []
+    for f in sorted(FX.rglob("*.tf")):
+        edges += p.parse_file(f)["edges"]
+    edges += p.finalize()
+    trip = [(e["from"], e["to"], e["type"]) for e in edges]
+    assert (
+        "resource/.#aws_eip.x",
+        "output/modules/net#subnet_id",
+        "uses_module_output",
+    ) in trip
+    # module input wiring
+    assert ("module/.#net", "variable/modules/net#region", "passes_input") in trip
