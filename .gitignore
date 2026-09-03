@@ -95,5 +95,5 @@ infra_graph/viz/obsidian_export.py
 result
 result-*
 
-# local-only SDD planning artifacts (kept in sec-docs, never published)
+# local-only planning artifacts, never published
 docs/superpowers/
