@@ -112,17 +112,16 @@ class AnsibleParser:
         self._task_files: dict[str, dict] = {}  # task_file_id -> task_file node
         self._role_task_pending: list[tuple[str, str]] = []  # (role_name, task_file_id)
         self._plays: dict[str, dict] = {}  # play_id -> play node
-        self._role_uses: list[tuple[str, str]] = []  # (play_id, role_name)
 
         # (owner_id, including_file_dir, ref, edge_type) — resolved in finalize()
         # once every file's task_file id is known, so path-only includes
         # (e.g. `include_tasks: setup.yml`) resolve to the qualified id
         # regardless of parse order.
         self._include_pending: list[tuple[str, Path, str, str]] = []
-        # (owner_id, role_name) for include_role/import_role — role ids don't
-        # depend on parse order, but we still resolve in finalize() so the
-        # role node is guaranteed to exist even if referenced before any of
-        # its own files are parsed.
+        # (owner_id, role_name) for include_role/import_role — role ids are
+        # deterministic strings, so resolution doesn't depend on parse order;
+        # we still defer to finalize() so the edge is emitted once every
+        # owner file has had a chance to register itself.
         self._include_role_pending: list[tuple[str, str]] = []
 
         # Handlers (Task 3): role-scoped handler nodes + notify resolution.
@@ -248,20 +247,10 @@ class AnsibleParser:
             target_path = (including_dir / ref).resolve()
             target_rel = rel_posix(target_path, self._root)
             target_id = f"task_file/{target_rel}"
-            if target_id not in self._task_files:
-                # Stub node: the include target was never parsed as its own
-                # file (missing, or outside the walked tree) — still emit the
-                # edge, but make sure `target_id` resolves to *something*.
-                self._task_files[target_id] = {
-                    "id": target_id,
-                    "type": "task_file",
-                    "kind": "ansible_task_file",
-                    "name": target_path.stem,
-                    "file": None,
-                    "line": None,
-                    "labels": {},
-                    "community_id": None,
-                }
+            # The include target may never have been parsed as its own file
+            # (missing, or outside the walked tree) — the edge is still
+            # produced regardless; the builder backfills any edge endpoint
+            # with no matching node as `type="unknown"`.
             edges.append({
                 "from": owner_id,
                 "to": target_id,
@@ -272,10 +261,14 @@ class AnsibleParser:
         self._include_pending.clear()
 
         for owner_id, role_name in self._include_role_pending:
-            role_id = self._ensure_role(role_name)
+            # The role id is a deterministic string, so it doesn't need
+            # `_ensure_role`'s node-registration side effect here — the role
+            # may never have been parsed as its own file; the builder
+            # backfills any edge endpoint with no matching node as
+            # `type="unknown"`.
             edges.append({
                 "from": owner_id,
-                "to": role_id,
+                "to": f"role/{role_name}",
                 "type": "includes_role",
                 "confidence": 1.0,
                 "provenance": "EXTRACTED",
@@ -414,7 +407,6 @@ class AnsibleParser:
                 if role_name:
                     role_id = self._ensure_role(role_name, nodes)
                     seen_ids.add(role_id)
-                    self._role_uses.append((play_id, role_name))
                     edges.append({
                         "from": play_id,
                         "to": role_id,
