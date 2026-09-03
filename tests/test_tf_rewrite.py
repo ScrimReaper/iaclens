@@ -49,3 +49,15 @@ def test_module_output_ref_resolves_to_child_output():
     ) in trip
     # module input wiring
     assert ("module/.#net", "variable/modules/net#region", "passes_input") in trip
+
+
+def test_resource_records_count_and_for_each():
+    nodes, edges = _graph(FX)
+    by = {n["id"]: n for n in nodes}
+    assert by["resource/.#aws_instance.web"]["labels"].get("count") is not None
+    assert by["resource/.#aws_s3_bucket.b"]["labels"].get("for_each") is not None
+    # no edges are created for these
+    counted_edges = [
+        e for e in edges if e["from"] in ("resource/.#aws_instance.web", "resource/.#aws_s3_bucket.b")
+    ]
+    assert counted_edges == []

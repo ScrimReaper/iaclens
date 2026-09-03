@@ -34,6 +34,70 @@ def _strip_quotes(s: str) -> str:
     return m.group(1) if m else s
 
 
+def _load_hcl(text: str) -> dict:
+    """
+    Load HCL2 text to a dict, requesting `__start_line__`/`__end_line__`
+    position metadata when the installed python-hcl2 supports it.
+
+    with_meta support is version-dependent:
+      - python-hcl2 <8 (e.g. 7.3.1, the version nixpkgs currently pins, used
+        by `nix build`/`nix flake check`): `hcl2.loads(text, with_meta=True)`
+        works and adds real __start_line__/__end_line__ keys to each block.
+      - python-hcl2 >=8 (8.1.3 is latest on PyPI as of this writing, and what
+        a plain `pip install` resolves): `with_meta` was moved onto
+        `SerializationOptions`, but as of 8.1.3 the flag is declared and
+        accepted yet never actually wired into serialization -- it silently
+        produces NO position keys (not an error, just a no-op).
+    Either branch degrades gracefully: nodes get real line numbers where the
+    installed python-hcl2 supports it, otherwise `line` stays None.
+    """
+    try:
+        return hcl2.loads(text, with_meta=True)
+    except TypeError:
+        pass
+    try:
+        from hcl2.utils import SerializationOptions
+
+        return hcl2.loads(text, serialization_options=SerializationOptions(with_meta=True))
+    except Exception:
+        return hcl2.loads(text)
+
+
+def _block_line(body: Any) -> int | None:
+    """Read the __start_line__ marker python-hcl2 attaches to a block body
+    when with_meta is honored (see `_load_hcl`); None when unavailable."""
+    if isinstance(body, dict):
+        line = body.get("__start_line__")
+        if isinstance(line, int):
+            return line
+    return None
+
+
+def _count_for_each_labels(body: Any) -> dict[str, Any]:
+    """Read the `count`/`for_each` meta-arguments off a resource/data/module
+    body into labels (never edges). `count` is stored as its stringified
+    expression; `for_each` as its stringified expression when it carries one,
+    else True as a simple presence marker."""
+    labels: dict[str, Any] = {}
+    if not isinstance(body, dict):
+        return labels
+    if "count" in body:
+        labels["count"] = str(body["count"])
+    if "for_each" in body:
+        fe = body["for_each"]
+        labels["for_each"] = str(fe) if isinstance(fe, str) else True
+    return labels
+
+
+def _without_meta_args(body: Any) -> Any:
+    """Body with `count`/`for_each` stripped before interpolation scanning,
+    so those meta-arguments (recorded separately as labels, never edges)
+    don't produce stray reference edges."""
+    if not isinstance(body, dict):
+        return body
+    return {k: v for k, v in body.items() if k not in ("count", "for_each")}
+
+
 def _normalize_dep(dep: str, d: str) -> str:
     """
     Normalize a depends_on value to a directory-qualified node ID, resolved
@@ -181,7 +245,7 @@ class TerraformParser:
 
         try:
             text = path.read_text(encoding="utf-8")
-            data = hcl2.loads(text)
+            data = _load_hcl(text)
         except Exception as exc:
             warnings.warn(f"[tf_parser] Failed to parse {path}: {exc}")
             return {"nodes": nodes, "edges": edges}
@@ -206,8 +270,8 @@ class TerraformParser:
                             "kind": res_type,
                             "name": res_name,
                             "file": file_str,
-                            "line": None,
-                            "labels": {},
+                            "line": _block_line(body),
+                            "labels": _count_for_each_labels(body),
                             "community_id": None,
                         }
                     )
@@ -224,9 +288,11 @@ class TerraformParser:
                                     "provenance": "EXTRACTED",
                                 }
                             )
-                    # interpolation refs
+                    # interpolation refs (count/for_each excluded: labels only)
                     edges.extend(
-                        self._resolve_interp_edges(node_id, d, _extract_interpolations(body))
+                        self._resolve_interp_edges(
+                            node_id, d, _extract_interpolations(_without_meta_args(body))
+                        )
                     )
 
         # ── variable blocks ──────────────────────────────────────────────────
@@ -241,7 +307,7 @@ class TerraformParser:
                         "kind": "variable",
                         "name": var_name,
                         "file": file_str,
-                        "line": None,
+                        "line": _block_line(_body),
                         "labels": {},
                         "community_id": None,
                     }
@@ -260,7 +326,7 @@ class TerraformParser:
                         "kind": "output",
                         "name": out_name,
                         "file": file_str,
-                        "line": None,
+                        "line": _block_line(output_body),
                         "labels": {},
                         "community_id": None,
                         "expression": str(output_body.get("value", "")),
@@ -284,17 +350,24 @@ class TerraformParser:
                             "kind": data_type,
                             "name": data_name,
                             "file": file_str,
-                            "line": None,
-                            "labels": {},
+                            "line": _block_line(body),
+                            "labels": _count_for_each_labels(body),
                             "community_id": None,
                         }
                     )
                     edges.extend(
-                        self._resolve_interp_edges(node_id, d, _extract_interpolations(body))
+                        self._resolve_interp_edges(
+                            node_id, d, _extract_interpolations(_without_meta_args(body))
+                        )
                     )
 
         # ── locals blocks ────────────────────────────────────────────────────
         for locals_block in data.get("locals", []):
+            # __start_line__/__end_line__ (when the installed python-hcl2
+            # honors with_meta) mark the whole `locals { ... }` body, as a
+            # sibling of each local's own key -- not per-local -- since all
+            # locals in one block share a single body/span.
+            locals_line = _block_line(locals_block)
             for local_name_raw, body in locals_block.items():
                 local_name = _strip_quotes(local_name_raw)
                 # Skip internal hcl2 marker keys
@@ -308,7 +381,7 @@ class TerraformParser:
                         "kind": "local",
                         "name": local_name,
                         "file": file_str,
-                        "line": None,
+                        "line": locals_line,
                         "labels": {},
                         "community_id": None,
                     }
@@ -331,7 +404,7 @@ class TerraformParser:
                         "kind": "provider",
                         "name": prov_name,
                         "file": file_str,
-                        "line": None,
+                        "line": _block_line(_body),
                         "labels": {},
                         "community_id": None,
                     }
@@ -357,8 +430,8 @@ class TerraformParser:
                         "kind": source or "unknown",
                         "name": mod_name,
                         "file": file_str,
-                        "line": None,
-                        "labels": {},
+                        "line": _block_line(body),
+                        "labels": _count_for_each_labels(body),
                         "community_id": None,
                     }
                 )
@@ -366,7 +439,9 @@ class TerraformParser:
                 # Same-dir targets (e.g. var.x in this file) are recorded here;
                 # finalize() additionally links each arg name to the CHILD
                 # module's own variable of that name, once source is resolved.
-                skip_keys = {"source", "version", "providers", "depends_on"}
+                # count/for_each are meta-arguments recorded as labels above,
+                # not pass-through inputs to a child variable of that name.
+                skip_keys = {"source", "version", "providers", "depends_on", "count", "for_each"}
                 arg_names: list[str] = []
                 input_exprs: list[str] = []
                 for key, val in body.items():
