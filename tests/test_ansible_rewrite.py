@@ -251,6 +251,20 @@ def test_host_vars_links_to_matching_play_by_hosts():
     assert ("vars/host/web1", "play/site.yml#webservers", "uses_vars") not in got
 
 
+def test_list_form_hosts_still_links_host_vars():
+    """A play with `hosts: [db1, db2]` (YAML list form, not a comma string)
+    must tokenize the same as the string form — `str(["db1", "db2"])` would
+    otherwise stringify to junk like "['db1', 'db2']" that never matches a
+    plain host/group name."""
+    nodes, edges = _graph(FX)
+    play_ids = {n["id"] for n in nodes if n["type"] == "play"}
+    assert "play/site.yml#db1,db2" in play_ids
+
+    got = [(e["from"], e["to"], e["type"]) for e in edges if e["type"] == "uses_vars"]
+    assert ("vars/host/db1", "play/site.yml#db1,db2", "uses_vars") in got
+    assert ("vars/host/web1", "play/site.yml#db1,db2", "uses_vars") not in got
+
+
 def test_finalize_is_idempotent_no_duplicate_edges():
     """Calling finalize() twice must not double-emit pending-derived edges."""
     from infra_graph.parsers.yaml_parser import YAMLParser

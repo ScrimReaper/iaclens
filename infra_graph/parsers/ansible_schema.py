@@ -79,6 +79,24 @@ def _hosts_tokens(hosts: str) -> list[str]:
     return [t for t in _VARS_HOST_SPLIT_RE.split(hosts.strip()) if t]
 
 
+def _normalize_hosts(hosts_raw: Any) -> str:
+    """Normalize a play's raw `hosts:` value to a single comma-joined string,
+    *before* it's used for the play id, the play node's `hosts` label, or
+    `_hosts_tokens` matching in `finalize()`.
+
+    Ansible allows `hosts:` to be a YAML list (`hosts: [web1, web2]`) as well
+    as a scalar string (`hosts: web1,web2` or `hosts: webservers`). Both forms
+    must tokenize to the same host/group names — `str([...])` would instead
+    stringify to `"['web1', 'web2']"`, which `_hosts_tokens` can't split
+    sensibly, silently dropping the `uses_vars` match for list-form hosts.
+    """
+    if hosts_raw is None:
+        return "all"
+    if isinstance(hosts_raw, list):
+        return ",".join(str(h) for h in hosts_raw)
+    return str(hosts_raw)
+
+
 class AnsibleParser:
     """Parse Ansible playbook and task files.
 
@@ -345,7 +363,7 @@ class AnsibleParser:
                 continue
 
             hosts_raw = play.get("hosts", "all")
-            hosts = str(hosts_raw) if hosts_raw is not None else "all"
+            hosts = _normalize_hosts(hosts_raw)
             play_name = play.get("name") or f"{path.stem}/{hosts}"
             play_id = qualified("play", rel, hosts)
 
