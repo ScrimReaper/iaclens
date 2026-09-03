@@ -8,6 +8,7 @@ returns the extra edges once every file has been parsed.
 
 from __future__ import annotations
 
+import re
 import warnings
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,28 @@ def _is_handler_file(docs: Any, path: Path) -> bool:
     return _is_task_like(docs) and "handlers" in path.parts
 
 
+def _is_group_vars_path(path: Path) -> bool:
+    """`group_vars/<g>.yml` or `group_vars/<g>/*.yml` — path-only, no content
+    sniff (these files are plain mappings, not task lists)."""
+    return "group_vars" in path.parts
+
+
+def _is_host_vars_path(path: Path) -> bool:
+    """`host_vars/<h>.yml` or `host_vars/<h>/*.yml` — path-only."""
+    return "host_vars" in path.parts
+
+
+_VARS_HOST_SPLIT_RE = re.compile(r"[,:\s]+")
+
+
+def _hosts_tokens(hosts: str) -> list[str]:
+    """Split a play's `hosts:` string on `,`/`:`/whitespace into tokens for a
+    plain string match against a group or host name. No group-pattern math
+    (globs, `&`/`!` operators, etc.) — just the literal tokens Ansible's
+    inventory patterns most commonly use."""
+    return [t for t in _VARS_HOST_SPLIT_RE.split(hosts.strip()) if t]
+
+
 class AnsibleParser:
     """Parse Ansible playbook and task files.
 
@@ -99,10 +122,30 @@ class AnsibleParser:
         # this schema doesn't attempt to resolve (no role scope to search).
         self._notify_pending: list[tuple[str, str, str | None]] = []
 
+        # Vars (Task 4): group_vars/host_vars/role-defaults/role-vars nodes,
+        # plus pending links resolved in finalize() (group/host -> play by
+        # host-string match; role -> its own defaults/vars file).
+        self._vars: dict[str, dict] = {}  # vars_id -> vars node
+        self._group_vars: dict[str, str] = {}  # group_name -> vars_id
+        self._host_vars: dict[str, str] = {}  # host_name -> vars_id
+        self._role_vars_pending: list[tuple[str, str]] = []  # (role_name, vars_id)
+
     def is_ansible_file(self, path: Path) -> bool:
-        """Return True if the file appears to be an Ansible playbook or task file."""
+        """Return True if the file appears to be an Ansible playbook, task
+        file, or vars file (group_vars/host_vars/role defaults/role vars).
+
+        The vars cases are decided on path alone, *before* any content sniff:
+        those files are plain mappings, not task lists, so the content-shape
+        checks below (`_is_playbook`/`_is_task_file`/`_is_handler_file`) would
+        never recognize them — the path is the only reliable signal.
+        """
         if path.suffix not in (".yml", ".yaml"):
             return False
+        if _is_group_vars_path(path) or _is_host_vars_path(path):
+            return True
+        role_name = self._role_name_from_path(path)
+        if role_name and self._role_vars_kind(path):
+            return True
         try:
             text = path.read_text(encoding="utf-8")
             docs = _yaml.load(text)
@@ -111,9 +154,19 @@ class AnsibleParser:
         return _is_playbook(docs) or _is_task_file(docs, path) or _is_handler_file(docs, path)
 
     def parse_file(self, path: Path) -> dict[str, Any]:
-        """Parse an Ansible playbook or task file."""
+        """Parse an Ansible playbook, task file, handler file, or vars file."""
         nodes: list[dict] = []
         edges: list[dict] = []
+
+        # ── Vars files (path-only classification, see is_ansible_file) ──────
+        if _is_group_vars_path(path):
+            return self._parse_group_vars_file(path)
+        if _is_host_vars_path(path):
+            return self._parse_host_vars_file(path)
+        role_name = self._role_name_from_path(path)
+        role_vars_kind = self._role_vars_kind(path) if role_name else None
+        if role_name and role_vars_kind:
+            return self._parse_role_vars_file(path, role_name, role_vars_kind)
 
         try:
             text = path.read_text(encoding="utf-8")
@@ -143,6 +196,10 @@ class AnsibleParser:
         - notify -> handler (`notifies`), resolved by handler name (falling
           back to a `listen:` topic match) within the notifying task's role
           (Task 3).
+        - role -> vars (`uses_vars`) for every `defaults/*.yml`/`vars/*.yml`
+          discovered under `roles/<name>/` (Task 4).
+        - group_vars/host_vars -> play (`uses_vars`), resolved by matching
+          the group/host name against the play's `hosts:` string (Task 4).
 
         Idempotent: pending lists are cleared after resolution, so a second
         `finalize()` call (or a stray double-call from a caller) emits no
@@ -220,6 +277,43 @@ class AnsibleParser:
                     "provenance": "INFERRED",
                 })
         self._notify_pending.clear()
+
+        for role_name, vars_id in self._role_vars_pending:
+            role_id = self._ensure_role(role_name)
+            edges.append({
+                "from": role_id,
+                "to": vars_id,
+                "type": "uses_vars",
+                "confidence": 1.0,
+                "provenance": "EXTRACTED",
+            })
+        self._role_vars_pending.clear()
+
+        for group, vars_id in self._group_vars.items():
+            for play_id, play_node in self._plays.items():
+                hosts = play_node["labels"].get("hosts", "")
+                if group == "all" or group in _hosts_tokens(hosts):
+                    edges.append({
+                        "from": vars_id,
+                        "to": play_id,
+                        "type": "uses_vars",
+                        "confidence": 0.9,
+                        "provenance": "INFERRED",
+                    })
+        self._group_vars.clear()
+
+        for host, vars_id in self._host_vars.items():
+            for play_id, play_node in self._plays.items():
+                hosts = play_node["labels"].get("hosts", "")
+                if host in _hosts_tokens(hosts):
+                    edges.append({
+                        "from": vars_id,
+                        "to": play_id,
+                        "type": "uses_vars",
+                        "confidence": 0.9,
+                        "provenance": "INFERRED",
+                    })
+        self._host_vars.clear()
 
         return edges
 
@@ -395,6 +489,57 @@ class AnsibleParser:
 
         return {"nodes": nodes, "edges": edges}
 
+    # ── Vars files ────────────────────────────────────────────────────────────
+
+    def _parse_group_vars_file(self, path: Path) -> dict[str, Any]:
+        group = self._group_or_host_name_from_path(path, "group_vars")
+        if not group:
+            return {"nodes": [], "edges": []}
+        vars_id = f"vars/group/{group}"
+        nodes = self._make_vars_node(vars_id, group, path, {"scope": "group"})
+        self._group_vars[group] = vars_id
+        return {"nodes": nodes, "edges": []}
+
+    def _parse_host_vars_file(self, path: Path) -> dict[str, Any]:
+        host = self._group_or_host_name_from_path(path, "host_vars")
+        if not host:
+            return {"nodes": [], "edges": []}
+        vars_id = f"vars/host/{host}"
+        nodes = self._make_vars_node(vars_id, host, path, {"scope": "host"})
+        self._host_vars[host] = vars_id
+        return {"nodes": nodes, "edges": []}
+
+    def _parse_role_vars_file(self, path: Path, role_name: str, kind: str) -> dict[str, Any]:
+        rel = rel_posix(path, self._root)
+        vars_id = f"vars/{rel}"
+        nodes = self._make_vars_node(
+            vars_id, path.stem, path, {"scope": "role", "role": role_name, "kind": kind}
+        )
+        self._ensure_role(role_name, nodes)  # lazily emits the role node too
+        self._role_vars_pending.append((role_name, vars_id))
+        return {"nodes": nodes, "edges": []}
+
+    def _make_vars_node(
+        self, vars_id: str, name: str, path: Path, labels: dict[str, Any]
+    ) -> list[dict]:
+        """Register `vars_id` in `self._vars`, returning `[node]` the first
+        time it's seen (so repeat references — e.g. a second file for the
+        same group_vars group — don't re-emit a duplicate node)."""
+        if vars_id in self._vars:
+            return []
+        node = {
+            "id": vars_id,
+            "type": "vars",
+            "kind": "ansible_vars",
+            "name": name,
+            "file": str(path),
+            "line": None,
+            "labels": labels,
+            "community_id": None,
+        }
+        self._vars[vars_id] = node
+        return [node]
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _ensure_role(self, role_name: str, nodes: list[dict] | None = None) -> str:
@@ -427,6 +572,34 @@ class AnsibleParser:
         if idx + 1 < len(parts):
             return parts[idx + 1]
         return None
+
+    @staticmethod
+    def _role_vars_kind(path: Path) -> str | None:
+        """`roles/<name>/defaults/...` -> "defaults", `roles/<name>/vars/...`
+        -> "vars", else None."""
+        parts = path.parts
+        if "roles" not in parts:
+            return None
+        idx = parts.index("roles")
+        if idx + 2 >= len(parts):
+            return None
+        kind = parts[idx + 2]
+        return kind if kind in ("defaults", "vars") else None
+
+    @staticmethod
+    def _group_or_host_name_from_path(path: Path, segment: str) -> str | None:
+        """`<segment>/<name>.yml` -> `<name>`; `<segment>/<name>/*.yml`
+        (Ansible's directory form) -> `<name>` too."""
+        parts = path.parts
+        if segment not in parts:
+            return None
+        idx = parts.index(segment)
+        remainder = parts[idx + 1 :]
+        if not remainder:
+            return None
+        if len(remainder) == 1:
+            return Path(remainder[0]).stem
+        return remainder[0]
 
     @staticmethod
     def _role_name(entry: Any) -> str | None:

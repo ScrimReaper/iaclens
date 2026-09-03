@@ -181,6 +181,76 @@ def test_notify_nested_in_block_rescue_always_is_collected():
     ) in notify_edges
 
 
+def test_group_vars_node_and_role_vars_edges():
+    nodes, edges = _graph(FX)
+    vars_ids = {n["id"] for n in nodes if n["type"] == "vars"}
+    assert "vars/group/webservers" in vars_ids
+    assert "vars/group/all" in vars_ids
+    assert "vars/host/web1" in vars_ids
+    assert "vars/roles/nginx/defaults/main.yml" in vars_ids
+    assert "vars/roles/nginx/vars/main.yml" in vars_ids
+
+    got = [
+        (e["from"], e["to"], e["type"], e["confidence"], e["provenance"]) for e in edges
+    ]
+    assert (
+        "role/nginx",
+        "vars/roles/nginx/defaults/main.yml",
+        "uses_vars",
+        1.0,
+        "EXTRACTED",
+    ) in got
+    assert (
+        "role/nginx",
+        "vars/roles/nginx/vars/main.yml",
+        "uses_vars",
+        1.0,
+        "EXTRACTED",
+    ) in got
+
+
+def test_group_vars_links_to_matching_play_by_hosts():
+    _, edges = _graph(FX)
+    got = [
+        (e["from"], e["to"], e["type"], e["confidence"], e["provenance"])
+        for e in edges
+        if e["type"] == "uses_vars"
+    ]
+    assert (
+        "vars/group/webservers",
+        "play/site.yml#webservers",
+        "uses_vars",
+        0.9,
+        "INFERRED",
+    ) in got
+    # not linked to the unrelated play (hosts: web1,web2 doesn't include webservers)
+    assert (
+        "vars/group/webservers",
+        "play/site.yml#web1,web2",
+        "uses_vars",
+        0.9,
+        "INFERRED",
+    ) not in got
+
+
+def test_group_vars_all_links_to_every_play():
+    nodes, edges = _graph(FX)
+    play_ids = {n["id"] for n in nodes if n["type"] == "play"}
+    linked = {
+        e["to"]
+        for e in edges
+        if e["type"] == "uses_vars" and e["from"] == "vars/group/all"
+    }
+    assert play_ids <= linked
+
+
+def test_host_vars_links_to_matching_play_by_hosts():
+    _, edges = _graph(FX)
+    got = [(e["from"], e["to"], e["type"]) for e in edges if e["type"] == "uses_vars"]
+    assert ("vars/host/web1", "play/site.yml#web1,web2", "uses_vars") in got
+    assert ("vars/host/web1", "play/site.yml#webservers", "uses_vars") not in got
+
+
 def test_finalize_is_idempotent_no_duplicate_edges():
     """Calling finalize() twice must not double-emit pending-derived edges."""
     from infra_graph.parsers.yaml_parser import YAMLParser

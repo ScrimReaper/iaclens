@@ -9,3 +9,9 @@
       apt:
         name: curl
         state: present
+
+- name: Configure specific web hosts
+  hosts: web1,web2
+  tasks:
+    - name: Ping hosts
+      ping:
