@@ -1,17 +1,20 @@
-# Contributing to infra-graph
+# Contributing to iaclens
 
 Thank you for your interest in contributing.
 
+iaclens is a fork of [infra-graph](https://github.com/vparab7/infra-graph), distributed via
+git and Nix instead of PyPI.
+
 ## Before you start
 
-- Check [open issues](https://github.com/vparab7/infra-graph/issues) to avoid duplicate work.
+- Check [open issues](https://github.com/ScrimReaper/iaclens/issues) to avoid duplicate work.
 - For significant changes, open an issue first to discuss the approach.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/vparab7/infra-graph
-cd infra-graph
+git clone https://github.com/ScrimReaper/iaclens
+cd iaclens
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
@@ -45,7 +48,7 @@ All tests must pass before a PR is merged. New features must include tests.
 
 ## Worked examples
 
-The most useful contribution is a worked example: run `infra-graph build` on a real IaC repo (anonymized if needed), save the output to `worked/{slug}/`, write an honest `review.md` covering what the graph got right and wrong, and open a PR.
+The most useful contribution is a worked example: run `iaclens build` on a real IaC repo (anonymized if needed), save the output to `worked/{slug}/`, write an honest `review.md` covering what the graph got right and wrong, and open a PR.
 
 ## Code style
 

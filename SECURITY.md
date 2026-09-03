@@ -21,6 +21,6 @@ You will receive a response within 48 hours. If the issue is confirmed, a patch 
 
 ## Scope
 
-infra-graph runs entirely locally. It parses files on your filesystem and exposes a local MCP stdio server. It does not make outbound network requests except during the optional `--mode deep` pass, which uses your own API key to call an LLM of your choice.
+iaclens runs entirely locally. It parses files on your filesystem and exposes a local MCP stdio server. It makes no outbound network requests.
 
 Sensitive files (`.tfstate`, `.tfvars`, secrets) should be excluded via `.infraignore`. The tool does not log or transmit file contents.

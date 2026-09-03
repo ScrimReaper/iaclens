@@ -1,4 +1,4 @@
-# .infraignore — patterns to exclude from infra-graph parsing
+# .infraignore — patterns to exclude from iaclens parsing
 # Uses gitignore-style patterns (pathspec gitwildmatch)
 # Rename this file to .infraignore to activate it.
 

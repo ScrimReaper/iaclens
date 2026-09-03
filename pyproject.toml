@@ -38,10 +38,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vparab7/infra-graph"
-Repository = "https://github.com/vparab7/infra-graph"
-"Bug Tracker" = "https://github.com/vparab7/infra-graph/issues"
-Changelog = "https://github.com/vparab7/infra-graph/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ScrimReaper/iaclens"
+Repository = "https://github.com/ScrimReaper/iaclens"
+"Bug Tracker" = "https://github.com/ScrimReaper/iaclens/issues"
+Changelog = "https://github.com/ScrimReaper/iaclens/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-cov", "ruff>=0.4", "mypy>=1.0"]

@@ -1,8 +1,8 @@
-# infra-graph Skill
+# iaclens Skill
 
 ## Trigger
 
-`/infra-graph`
+`/iaclens`
 
 ## What it does
 
@@ -16,15 +16,15 @@ After building, it invokes the MCP tools to provide:
 
 ## Workflow
 
-When the user types `/infra-graph`:
+When the user types `/iaclens`:
 
 1. **Build or update the graph**
    ```bash
-   infra-graph build . --update
+   iaclens build . --update
    ```
    Or, if the graph has never been built:
    ```bash
-   infra-graph build .
+   iaclens build .
    ```
 
 2. **Get orientation** using MCP tools (in order):
@@ -74,7 +74,7 @@ When the user types `/infra-graph`:
 ## Example usage
 
 ```
-/infra-graph
+/iaclens
 
 # After build, you might ask:
 What is the blast radius if the aws_vpc.main resource changes?

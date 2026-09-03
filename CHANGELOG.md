@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — iaclens fork
+
+Forked from infra-graph. Added a reusable Nix flake; renamed the command and package to
+`iaclens` (module `infra_graph` unchanged); made `--version` robust; removed the
+non-functional `--mode deep` option and the PyPI publish workflow.
 
 ## [0.3.1] - 2026-04-27
 
