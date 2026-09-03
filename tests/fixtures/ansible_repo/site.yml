@@ -1,0 +1,23 @@
+---
+- name: Deploy web stack
+  hosts: webservers
+  roles:
+    - nginx
+    - postgres
+  tasks:
+    - name: Install curl
+      apt:
+        name: curl
+        state: present
+
+- name: Configure specific web hosts
+  hosts: web1,web2
+  tasks:
+    - name: Ping hosts
+      ping:
+
+- name: Configure db hosts (list-form hosts)
+  hosts: [db1, db2]
+  tasks:
+    - name: Ping db hosts
+      ping:

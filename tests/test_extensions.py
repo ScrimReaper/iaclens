@@ -129,14 +129,14 @@ class TestKedaScaledObject:
 
 @pytest.fixture
 def ansible_result():
-    parser = AnsibleParser()
+    parser = AnsibleParser(FIXTURES)
     return parser.parse_file(FIXTURES / "ansible_playbook.yaml")
 
 
 class TestAnsiblePlaybook:
     def test_play_node(self, ansible_result):
         node_ids = {n["id"] for n in ansible_result["nodes"]}
-        assert "play/ansible_playbook/webservers" in node_ids
+        assert "play/ansible_playbook.yaml#webservers" in node_ids
 
     def test_role_nodes(self, ansible_result):
         node_ids = {n["id"] for n in ansible_result["nodes"]}
@@ -147,14 +147,18 @@ class TestAnsiblePlaybook:
         edges = [e for e in ansible_result["edges"] if e["type"] == "uses_role"]
         assert len(edges) >= 2
         pairs = {(e["from"], e["to"]) for e in edges}
-        assert ("play/ansible_playbook/webservers", "role/common") in pairs
-        assert ("play/ansible_playbook/webservers", "role/nginx") in pairs
+        assert ("play/ansible_playbook.yaml#webservers", "role/common") in pairs
+        assert ("play/ansible_playbook.yaml#webservers", "role/nginx") in pairs
 
-    def test_includes_tasks_edge(self, ansible_result):
-        edges = [e for e in ansible_result["edges"] if e["type"] == "includes_tasks"]
+    def test_includes_tasks_edge(self):
+        # includes_tasks is resolved cross-file, so it needs finalize().
+        parser = AnsibleParser(FIXTURES)
+        result = parser.parse_file(FIXTURES / "ansible_playbook.yaml")
+        edges = result["edges"] + parser.finalize()
+        edges = [e for e in edges if e["type"] == "includes_tasks"]
         assert len(edges) >= 1
         pairs = {(e["from"], e["to"]) for e in edges}
-        assert ("play/ansible_playbook/webservers", "task_file/firewall") in pairs
+        assert ("play/ansible_playbook.yaml#webservers", "task_file/firewall.yml") in pairs
 
     def test_node_types(self, ansible_result):
         types = {n["type"] for n in ansible_result["nodes"]}
@@ -162,7 +166,7 @@ class TestAnsiblePlaybook:
         assert "role" in types
 
     def test_is_ansible_file_detection(self):
-        parser = AnsibleParser()
+        parser = AnsibleParser(FIXTURES)
         assert parser.is_ansible_file(FIXTURES / "ansible_playbook.yaml")
         assert not parser.is_ansible_file(FIXTURES / "k8s_deployment.yaml")
         assert not parser.is_ansible_file(FIXTURES / "generic_config.yaml")
