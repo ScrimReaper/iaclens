@@ -1,0 +1,7 @@
+---
+- name: Ensure common packages
+  apt:
+    name:
+      - curl
+      - vim
+    state: present
