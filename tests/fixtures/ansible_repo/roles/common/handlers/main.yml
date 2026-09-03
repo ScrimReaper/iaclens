@@ -1,0 +1,4 @@
+---
+- name: common handler
+  debug:
+    msg: common handler fired

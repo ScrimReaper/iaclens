@@ -3,8 +3,12 @@
   apt:
     name: nginx
     state: present
+  notify: restart nginx
 
 - name: Start nginx
   service:
     name: nginx
     state: started
+  notify:
+    - restart nginx
+    - nginx-listeners

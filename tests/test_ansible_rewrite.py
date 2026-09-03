@@ -135,6 +135,52 @@ def test_include_target_gets_a_stub_node_even_when_never_parsed():
     ) in got
 
 
+def test_handler_nodes_and_has_handler_edges():
+    nodes, edges = _graph(FX)
+    handler_ids = {n["id"] for n in nodes if n["type"] == "handler"}
+    assert "handler/nginx/restart nginx" in handler_ids
+    assert "handler/nginx/reload nginx" in handler_ids
+    assert "handler/common/common handler" in handler_ids
+
+    got = [(e["from"], e["to"], e["type"]) for e in edges]
+    assert ("role/nginx", "handler/nginx/restart nginx", "has_handler") in got
+    assert ("role/nginx", "handler/nginx/reload nginx", "has_handler") in got
+    assert ("role/common", "handler/common/common handler", "has_handler") in got
+
+
+def test_notify_resolves_to_handler_by_name():
+    _, edges = _graph(FX)
+    notify_edges = [
+        (e["from"], e["to"], e["confidence"], e["provenance"])
+        for e in edges
+        if e["type"] == "notifies"
+    ]
+    assert (
+        "task_file/roles/nginx/tasks/main.yml",
+        "handler/nginx/restart nginx",
+        0.9,
+        "INFERRED",
+    ) in notify_edges
+
+
+def test_notify_resolves_to_handler_by_listen_topic():
+    _, edges = _graph(FX)
+    notify_edges = [(e["from"], e["to"]) for e in edges if e["type"] == "notifies"]
+    assert (
+        "task_file/roles/nginx/tasks/main.yml",
+        "handler/nginx/reload nginx",
+    ) in notify_edges
+
+
+def test_notify_nested_in_block_rescue_always_is_collected():
+    _, edges = _graph(FX)
+    notify_edges = [(e["from"], e["to"]) for e in edges if e["type"] == "notifies"]
+    assert (
+        "task_file/roles/common/tasks/main.yml",
+        "handler/common/common handler",
+    ) in notify_edges
+
+
 def test_finalize_is_idempotent_no_duplicate_edges():
     """Calling finalize() twice must not double-emit pending-derived edges."""
     from infra_graph.parsers.yaml_parser import YAMLParser

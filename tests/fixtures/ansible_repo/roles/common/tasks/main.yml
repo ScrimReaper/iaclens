@@ -18,6 +18,7 @@
     - name: Always announce
       debug:
         msg: block finished
+      notify: common handler
 
 - name: Import extra tasks
   import_tasks: extra.yml
