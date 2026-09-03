@@ -1,10 +1,18 @@
 """Tests for directory-qualified Terraform node IDs and same-dir ref resolution."""
 
+import shutil
 from pathlib import Path
 
+from infra_graph.graph.builder import GraphBuilder
 from infra_graph.parsers.tf_parser import TerraformParser
 
 FX = Path(__file__).parent / "fixtures" / "tf_repo"
+
+_ITERATION_CTX_IDS = {
+    "resource/.#each.value",
+    "resource/.#each.key",
+    "resource/.#count.index",
+}
 
 
 def _graph(root):
@@ -61,3 +69,20 @@ def test_resource_records_count_and_for_each():
         e for e in edges if e["from"] in ("resource/.#aws_instance.web", "resource/.#aws_s3_bucket.b")
     ]
     assert counted_edges == []
+
+
+def test_each_and_count_context_refs_produce_no_edges():
+    """each.value/each.key/count.index are iteration-context references
+    inside a for_each/count block body, not references to another node."""
+    _, edges = _graph(FX)
+    targets = {e["to"] for e in edges}
+    assert not (_ITERATION_CTX_IDS & targets)
+
+
+def test_each_and_count_context_refs_do_not_materialize_unknown_nodes(tmp_path):
+    """The builder must not create junk 'unknown'-typed nodes for
+    each.value/each.key/count.index either."""
+    shutil.copytree(FX, tmp_path / "repo", ignore=shutil.ignore_patterns("iaclens-out"))
+    b = GraphBuilder(tmp_path / "repo")
+    b.build()
+    assert not (_ITERATION_CTX_IDS & set(b.graph.nodes()))

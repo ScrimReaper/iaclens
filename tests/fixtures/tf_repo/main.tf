@@ -15,9 +15,15 @@ resource "aws_eip" "x" {
 resource "aws_instance" "web" {
   count = 2
   ami   = "ami-123"
+  tags = {
+    Name = "web-${count.index}"
+  }
 }
 
 resource "aws_s3_bucket" "b" {
   for_each = toset(["a", "b"])
-  bucket   = "bucket-name"
+  bucket   = each.value
+  tags = {
+    Key = each.key
+  }
 }

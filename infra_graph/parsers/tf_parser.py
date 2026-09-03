@@ -24,6 +24,11 @@ _MODULE_OUTPUT_RE = re.compile(r"^module\.(\w+)\.(\w+)")
 # Detect dynamic refs (string concatenation / complex expressions)
 _DYNAMIC_RE = re.compile(r"[+\-*/]|format\(|join\(")
 
+# each.value/each.key/count.index: iteration-context references inside a
+# for_each/count block body, not references to another graph node. Never
+# emit an edge for these.
+_ITERATION_CTX_RE = re.compile(r"^(each|count)\.")
+
 # HCL2 wraps string keys in double-quotes sometimes; strip them
 _QUOTE_RE = re.compile(r'^"(.*)"$')
 
@@ -213,6 +218,8 @@ class TerraformParser:
         """
         out: list[dict] = []
         for expr in exprs:
+            if _ITERATION_CTX_RE.match(expr):
+                continue
             mo = _MODULE_OUTPUT_RE.match(expr)
             if mo:
                 self._pending_module_outputs.append((node_id, d, mo.group(1), mo.group(2)))
