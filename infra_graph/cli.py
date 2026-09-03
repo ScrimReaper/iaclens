@@ -2,13 +2,13 @@
 iaclens CLI entry point.
 
 Commands:
-  build <path> [--update] [--watch]
+  build <path> [--update]
   query "<question>"
   blast-radius <node_id_or_file>
   path <from> <to>
   status
   visualize
-  serve
+  serve                    (auto-watches for changes; IACLENS_NO_WATCH=1 to disable)
   install [--platform claude-code|cursor|codex|opencode]
 """
 
@@ -51,10 +51,9 @@ def cli() -> None:
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option("--update", is_flag=True, help="Incremental update (skip unchanged files)")
-@click.option("--watch", is_flag=True, help="Watch for file changes and auto-rebuild")
 @click.option("--format", "fmt", default="toon", type=click.Choice(["toon", "json"]),
               help="Output graph format (default: toon)")
-def build(path: str, update: bool, watch: bool, fmt: str) -> None:
+def build(path: str, update: bool, fmt: str) -> None:
     """Build or update the infrastructure knowledge graph."""
     project_root = Path(path).resolve()
     builder = GraphBuilder(project_root)
@@ -77,47 +76,6 @@ def build(path: str, update: bool, watch: bool, fmt: str) -> None:
     graph_file_name = "graph.toon" if fmt == "toon" else "graph.json"
     graph_path = builder.out_dir / graph_file_name
     click.echo(f"Graph:  {graph_path}")
-
-    if watch:
-        _watch_mode(project_root, builder)
-
-
-def _watch_mode(project_root: Path, builder: GraphBuilder) -> None:
-    """Watch for file changes and rebuild incrementally."""
-    try:
-        import time
-
-        from watchdog.events import FileSystemEventHandler
-        from watchdog.observers import Observer
-    except ImportError:
-        click.echo("watchdog not installed. Run: pip install watchdog", err=True)
-        sys.exit(1)
-
-    click.echo(f"Watching {project_root} for changes... (Ctrl+C to stop)")
-
-    class RebuildHandler(FileSystemEventHandler):
-        def on_modified(self, event):  # type: ignore[override]
-            if event.is_directory:
-                return
-            p = Path(event.src_path)
-            if p.suffix in (".tf", ".yml", ".yaml"):
-                click.echo(f"  Changed: {p.name} — rebuilding...")
-                builder.build(update_only=True)
-                click.echo("  Done.")
-
-        def on_created(self, event):  # type: ignore[override]
-            self.on_modified(event)
-
-    observer = Observer()
-    observer.schedule(RebuildHandler(), str(project_root), recursive=True)
-    observer.start()
-    try:
-        import time
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
 
 
 # ── query ─────────────────────────────────────────────────────────────────────
@@ -335,11 +293,72 @@ def federate(paths: tuple[str, ...], output: str | None, fmt: str) -> None:
               type=click.Path(exists=True, dir_okay=False),
               help="Explicit graph file to serve (overrides default search)")
 def serve(path: str, graph_path: str | None) -> None:
-    """Start the MCP stdio server."""
+    """Start the MCP stdio server.
+
+    Auto-watches the project for file changes and does a debounced full
+    rebuild on each one, so the graph stays fresh without a separate
+    `build --watch` process. Set IACLENS_NO_WATCH=1 to disable watching, and
+    IACLENS_WATCH_DEBOUNCE_MS to tune the debounce window (default 800,
+    clamped to [100, 60000]). Passing an explicit --graph disables
+    auto-watch: that file is served static, since rebuilds always write to
+    the project's own iaclens-out/graph.toon.
+    """
     project_root = Path(path).resolve()
-    from .mcp.server import run_server
+    builder = _get_builder(project_root)
+
+    # Catch-up build so the graph is fresh before the server starts.
+    click.echo(f"Building graph for: {project_root}", err=True)
+    builder.build()
+
     gp = Path(graph_path).resolve() if graph_path else None
-    run_server(project_root=project_root, graph_file=gp)
+    watch_handle = _maybe_start_watch(builder, explicit_graph=gp)
+
+    from .mcp.server import run_server
+    try:
+        run_server(project_root=project_root, graph_file=gp)
+    finally:
+        if watch_handle is not None:
+            scheduler, observer = watch_handle
+            scheduler.stop()
+            observer.stop()
+            observer.join()
+
+
+def _maybe_start_watch(
+    builder: GraphBuilder, explicit_graph: Path | None = None
+) -> tuple | None:
+    """Start the auto-watcher for `serve`, unless watching is disabled.
+
+    Watching is skipped if `IACLENS_NO_WATCH` is set, or if `explicit_graph`
+    is given: rebuilds always write to `builder.out_dir/graph.toon`, so an
+    explicit `--graph` pointed at a different file (e.g. a federated graph)
+    would never see live updates from the watcher. An explicit graph is
+    served static instead of silently going stale.
+
+    Returns `(scheduler, observer)` on success, or `None` if watching is
+    disabled. The caller owns stopping both on shutdown.
+    """
+    import os
+
+    if explicit_graph is not None:
+        click.echo(
+            "Auto-watch disabled: serving an explicit --graph file "
+            "(rebuilds would not reach it).",
+            err=True,
+        )
+        return None
+
+    if os.environ.get("IACLENS_NO_WATCH"):
+        return None
+
+    from .watch import RebuildScheduler, debounce_ms_from_env, start_watching
+
+    scheduler = RebuildScheduler(
+        rebuild_fn=lambda: builder.build(),
+        debounce_ms=debounce_ms_from_env(),
+    )
+    observer = start_watching(builder.project_root, builder, scheduler)
+    return scheduler, observer
 
 
 # ── install ───────────────────────────────────────────────────────────────────
