@@ -1,19 +1,19 @@
-"""Install infra-graph for OpenAI Codex / OpenCode: write AGENTS.md"""
+"""Install iaclens for OpenAI Codex / OpenCode: write AGENTS.md"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 _AGENTS_MD_SECTION = """
-## infra-graph: Infrastructure Knowledge Graph Tools
+## iaclens: Infrastructure Knowledge Graph Tools
 
 This repository has a pre-built infrastructure knowledge graph. Use the
-`infra-graph` MCP server tools **before** reading Terraform or Kubernetes files.
+`iaclens` MCP server tools **before** reading Terraform or Kubernetes files.
 
 ### Setup
 
 ```bash
-infra-graph serve  # starts MCP stdio server
+iaclens serve  # starts MCP stdio server
 ```
 
 ### Tool Reference
@@ -44,7 +44,7 @@ def install(project_root: Path) -> dict[str, str]:
     """Write or update AGENTS.md in the project root."""
     project_root = project_root.resolve()
     agents_md_path = project_root / "AGENTS.md"
-    marker = "## infra-graph: Infrastructure Knowledge Graph Tools"
+    marker = "## iaclens: Infrastructure Knowledge Graph Tools"
 
     if agents_md_path.exists():
         existing = agents_md_path.read_text()

@@ -25,7 +25,7 @@
 
         apps.default = {
           type = "app";
-          program = "${pkgs.iaclens}/bin/infra-graph";
+          program = "${pkgs.iaclens}/bin/iaclens";
         };
 
         devShells.default = pkgs.mkShell {

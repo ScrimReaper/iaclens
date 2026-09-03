@@ -36,6 +36,6 @@ buildPythonApplication {
     description = "Infrastructure knowledge-graph MCP server for IaC files";
     homepage = "https://github.com/ScrimReaper/iaclens";
     license = lib.licenses.asl20;
-    mainProgram = "infra-graph";  # upstream CLI/entry-point name, kept as-is
+    mainProgram = "iaclens";
   };
 }

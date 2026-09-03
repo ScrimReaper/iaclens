@@ -22,7 +22,7 @@ def get_minimal_context(graph: nx.DiGraph) -> dict[str, Any]:
     ~100-token summary: god nodes and top communities.
     """
     if graph.number_of_nodes() == 0:
-        return {"summary": "Graph is empty. Run `infra-graph build <path>` first."}
+        return {"summary": "Graph is empty. Run `iaclens build <path>` first."}
 
     # Top 3 hub nodes
     by_degree = sorted(graph.nodes(), key=lambda n: graph.degree(n), reverse=True)

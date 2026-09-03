@@ -1,5 +1,5 @@
 """
-infra-graph CLI entry point.
+iaclens CLI entry point.
 
 Commands:
   build <path> [--update] [--watch]
@@ -14,6 +14,7 @@ Commands:
 
 from __future__ import annotations
 
+import importlib.metadata
 import sys
 from pathlib import Path
 
@@ -22,6 +23,11 @@ import click
 from .graph.blast_radius import find_path, get_blast_radius
 from .graph.builder import GraphBuilder
 from .graph.report import generate_report
+
+try:
+    __version__ = importlib.metadata.version("iaclens")
+except importlib.metadata.PackageNotFoundError:  # running from a source tree
+    __version__ = "0.3.1"
 
 
 def _get_builder(project_root: Path) -> GraphBuilder:
@@ -32,16 +38,16 @@ def _load_graph_or_exit(builder: GraphBuilder) -> None:
     ok = builder.load_graph()
     if not ok or builder.graph.number_of_nodes() == 0:
         click.echo(
-            "No graph found. Run `infra-graph build <path>` first.",
+            "No graph found. Run `iaclens build <path>` first.",
             err=True,
         )
         sys.exit(1)
 
 
 @click.group()
-@click.version_option(package_name="infra-graph7")
+@click.version_option(version=__version__, prog_name="iaclens")
 def cli() -> None:
-    """infra-graph: Infrastructure knowledge graph for Claude Code."""
+    """iaclens: Infrastructure knowledge graph for Claude Code."""
 
 
 # ── build ─────────────────────────────────────────────────────────────────────
@@ -218,7 +224,7 @@ def status(path: str) -> None:
     if not graph_file.exists():
         graph_file = builder.out_dir / "graph.json"
     if not graph_file.exists():
-        click.echo("No graph built yet. Run `infra-graph build <path>`.")
+        click.echo("No graph built yet. Run `iaclens build <path>`.")
         return
 
     ok = builder.load_graph()
@@ -230,7 +236,7 @@ def status(path: str) -> None:
     from .graph.community import get_community_summary
     communities = get_community_summary(g)
 
-    click.echo(f"\ninfra-graph status for: {project_root}")
+    click.echo(f"\niaclens status for: {project_root}")
     click.echo(f"  Nodes:       {g.number_of_nodes()}")
     click.echo(f"  Edges:       {g.number_of_edges()}")
     click.echo(f"  Communities: {len(communities)}")
@@ -292,7 +298,7 @@ def federate(paths: tuple[str, ...], output: str | None, fmt: str) -> None:
                 graph_files.append(json_file)
             else:
                 click.echo(
-                    f"No graph found in {pp}. Run `infra-graph build` first.", err=True
+                    f"No graph found in {pp}. Run `iaclens build` first.", err=True
                 )
                 sys.exit(1)
         else:
@@ -355,12 +361,12 @@ def serve(path: str, graph_path: str | None) -> None:
     "--federated",
     default=None,
     type=click.Path(dir_okay=False),
-    help="Path to a federated graph file; adds infra-graph-federated MCP entry",
+    help="Path to a federated graph file; adds iaclens-federated MCP entry",
 )
 def install(platform: str, path: str, federated: str | None) -> None:
-    """Install infra-graph integration files into a project."""
+    """Install iaclens integration files into a project."""
     project_root = Path(path).resolve()
-    click.echo(f"Installing infra-graph for {platform} in: {project_root}")
+    click.echo(f"Installing iaclens for {platform} in: {project_root}")
 
     federated_path = Path(federated).resolve() if federated else None
 
@@ -380,4 +386,4 @@ def install(platform: str, path: str, federated: str | None) -> None:
     for filename, action in results.items():
         click.echo(f"  {action:10s}  {filename}")
 
-    click.echo("\nDone. Run `infra-graph build .` to build the graph.")
+    click.echo("\nDone. Run `iaclens build .` to build the graph.")

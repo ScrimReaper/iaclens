@@ -1,18 +1,17 @@
-# infra-graph
+# iaclens
 
 **Stop asking your AI to read 70 files. Give it a graph.**
 
-infra-graph is a knowledge graph engine for infrastructure files. It parses your Terraform, Kubernetes, ArgoCD, GitHub Actions, Docker Compose, Helm, and Kustomize files, builds a structural dependency graph, and exposes it as an MCP server — so your AI assistant reads compact graph context instead of raw files on every question.
+iaclens is a knowledge graph engine for infrastructure files. It parses your Terraform, Kubernetes, ArgoCD, GitHub Actions, Docker Compose, Helm, and Kustomize files, builds a structural dependency graph, and exposes it as an MCP server — so your AI assistant reads compact graph context instead of raw files on every question.
 
-[![PyPI](https://img.shields.io/pypi/v/infra-graph7?style=flat-square&color=blue)](https://pypi.org/project/infra-graph7/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square)](https://www.python.org/)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
-[![CI](https://github.com/vparab7/infra-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/vparab7/infra-graph/actions/workflows/ci.yml)
+[![CI](https://github.com/ScrimReaper/iaclens/actions/workflows/ci.yml/badge.svg)](https://github.com/ScrimReaper/iaclens/actions/workflows/ci.yml)
 
 ---
 
-## Why infra-graph?
+## Why iaclens?
 
 Every time you ask your AI assistant an infrastructure question, it reads your entire repo from scratch.
 
@@ -22,7 +21,7 @@ Every time you ask your AI assistant an infrastructure question, it reads your e
 
 The cross-file relationships that matter — a Security Group referenced by 12 resources, a ConfigMap mounted by 5 Deployments, an ArgoCD ApplicationSet deploying 9 services to 3 clusters — are invisible without a graph.
 
-**infra-graph pre-indexes those relationships once. Every subsequent question reads the compact graph.**
+**iaclens pre-indexes those relationships once. Every subsequent question reads the compact graph.**
 
 | Approach | Tokens per query |
 |----------|-----------------|
@@ -42,10 +41,16 @@ The cross-file relationships that matter — a Security Group referenced by 12 r
 **Step 1 — Install**
 
 ```bash
-pip install infra-graph7
+pip install git+https://github.com/ScrimReaper/iaclens
 ```
 
-> The PyPI package is `infra-graph7`. Once installed, the CLI command is `infra-graph` (no `7`).
+Or with Nix:
+
+```bash
+nix run github:ScrimReaper/iaclens -- --help
+```
+
+> iaclens is not published to PyPI. Install it from the git repository, or via Nix.
 
 **Step 2 — Go to your infrastructure repo**
 
@@ -56,15 +61,15 @@ cd /path/to/your/infra-repo
 **Step 3 — Wire it into your AI assistant**
 
 ```bash
-infra-graph install
+iaclens install
 ```
 
-This auto-detects your AI assistant (Claude Code, Cursor, Codex, OpenCode) and writes the MCP config. Done — restart your AI assistant and it will use infra-graph automatically.
+This auto-detects your AI assistant (Claude Code, Cursor, Codex, OpenCode) and writes the MCP config. Done — restart your AI assistant and it will use iaclens automatically.
 
 **Step 4 — Build the graph**
 
 ```bash
-infra-graph build .
+iaclens build .
 ```
 
 You'll see a `GRAPH_REPORT.md` appear in the current directory with a summary of your infrastructure: god nodes, communities, surprising connections, and token savings.
@@ -90,34 +95,34 @@ The AI now reads compact graph context (~500 tokens) instead of all your files (
 ### Claude Code
 
 ```bash
-infra-graph install --platform claude-code
+iaclens install --platform claude-code
 ```
 
 This writes:
 - `.mcp.json` — MCP server config (Claude Code picks this up automatically on next launch)
-- `CLAUDE.md` — instructs Claude to use infra-graph tools before reading files
+- `CLAUDE.md` — instructs Claude to use iaclens tools before reading files
 
-Then restart Claude Code. You'll see infra-graph listed under available MCP servers.
+Then restart Claude Code. You'll see iaclens listed under available MCP servers.
 
-You can also use the `/infra-graph` slash command:
+You can also use the `/iaclens` slash command:
 
 ```
-/infra-graph .           # build + get orientation summary
-/infra-graph . --update  # incremental update after file changes
+/iaclens .           # build + get orientation summary
+/iaclens . --update  # incremental update after file changes
 ```
 
 ### Cursor
 
 ```bash
-infra-graph install --platform cursor
+iaclens install --platform cursor
 ```
 
-Writes `.cursor/rules/infra-graph.mdc`. Restart Cursor to pick it up.
+Writes `.cursor/rules/iaclens.mdc`. Restart Cursor to pick it up.
 
 ### Codex
 
 ```bash
-infra-graph install --platform codex
+iaclens install --platform codex
 ```
 
 Writes `AGENTS.md` with tool usage instructions.
@@ -125,13 +130,13 @@ Writes `AGENTS.md` with tool usage instructions.
 ### OpenCode
 
 ```bash
-infra-graph install --platform opencode
+iaclens install --platform opencode
 ```
 
 ### Manual / other assistants
 
 ```bash
-infra-graph serve   # starts the MCP stdio server
+iaclens serve   # starts the MCP stdio server
 ```
 
 Point your assistant's MCP config at this command. The server speaks the standard MCP stdio protocol.
@@ -141,11 +146,11 @@ Point your assistant's MCP config at this command. The server speaks the standar
 ## Building the graph
 
 ```bash
-infra-graph build .                   # parse everything in current directory
-infra-graph build ./terraform         # only Terraform files
-infra-graph build ./k8s               # only Kubernetes manifests
-infra-graph build . --update          # re-parse only files that changed (fast)
-infra-graph build . --watch           # auto-rebuild on every file save
+iaclens build .                   # parse everything in current directory
+iaclens build ./terraform         # only Terraform files
+iaclens build ./k8s               # only Kubernetes manifests
+iaclens build . --update          # re-parse only files that changed (fast)
+iaclens build . --watch           # auto-rebuild on every file save
 ```
 
 After each build, `GRAPH_REPORT.md` is written with:
@@ -235,7 +240,7 @@ Large infrastructure estates are often split across multiple repositories — a 
 
 ### How it works
 
-Each repository builds its own `graph.toon` with `infra-graph build`. The `infra-graph federate` command then reads those graphs and resolves unknown references using three strategies (applied in order):
+Each repository builds its own `graph.toon` with `iaclens build`. The `iaclens federate` command then reads those graphs and resolves unknown references using three strategies (applied in order):
 
 1. **Exact ID match** — an unresolved node in one repo is satisfied by a real node in another repo that shares the same node ID.
 2. **Fuzzy/suffix match** — strips known org prefixes and matches on base name + node type. For example, `helm_chart/myapp` referenced in a GitOps repo is resolved to `helm_chart/org-myapp` in the charts repo; resolved edges are tagged `provenance=FEDERATED_FUZZY, confidence=0.7`.
@@ -247,12 +252,12 @@ The output is `federated-graph.toon` with federation metadata (`unknowns_resolve
 
 ```bash
 # Build individual graphs first
-cd /path/to/terraform-infra  && infra-graph build .
-cd /path/to/gitops-config    && infra-graph build .
-cd /path/to/helm-charts      && infra-graph build .
+cd /path/to/terraform-infra  && iaclens build .
+cd /path/to/gitops-config    && iaclens build .
+cd /path/to/helm-charts      && iaclens build .
 
 # Merge into a federated graph
-infra-graph federate \
+iaclens federate \
   /path/to/terraform-infra/graph.toon \
   /path/to/gitops-config/graph.toon \
   /path/to/helm-charts/graph.toon \
@@ -264,7 +269,7 @@ infra-graph federate \
 Point the MCP server at any graph file with the `--graph` flag:
 
 ```bash
-infra-graph serve --graph ./federated-graph.toon
+iaclens serve --graph ./federated-graph.toon
 ```
 
 ### Dual-graph install (single-repo + federated)
@@ -272,13 +277,13 @@ infra-graph serve --graph ./federated-graph.toon
 Register both the per-repo graph and the federated graph as separate MCP servers so Claude Code can query either scope:
 
 ```bash
-infra-graph install --federated ./federated-graph.toon
+iaclens install --federated ./federated-graph.toon
 ```
 
 This writes two MCP server entries to `.mcp.json`:
 
-- `infra-graph` — the local single-repo graph (as before)
-- `infra-graph-federated` — the merged cross-repo graph
+- `iaclens` — the local single-repo graph (as before)
+- `iaclens-federated` — the merged cross-repo graph
 
 Claude Code discovers both servers on the next launch and selects the appropriate scope automatically.
 
@@ -286,11 +291,11 @@ Claude Code discovers both servers on the next launch and selects the appropriat
 
 ## Output Format (TOON)
 
-Starting in v0.3.0, `infra-graph build` writes `graph.toon` by default instead of `graph.json`. TOON (Token-Oriented Object Notation) uses tabular encoding for uniform arrays (node lists, edge lists), producing files that are roughly **40% smaller in token count** than equivalent JSON — meaning even loading the full raw graph into an AI context window costs fewer tokens.
+Starting in v0.3.0, `iaclens build` writes `graph.toon` by default instead of `graph.json`. TOON (Token-Oriented Object Notation) uses tabular encoding for uniform arrays (node lists, edge lists), producing files that are roughly **40% smaller in token count** than equivalent JSON — meaning even loading the full raw graph into an AI context window costs fewer tokens.
 
 ```bash
-infra-graph build .                   # writes graph.toon (default)
-infra-graph build . --format json     # opt in to legacy graph.json
+iaclens build .                   # writes graph.toon (default)
+iaclens build . --format json     # opt in to legacy graph.json
 ```
 
 `load_graph` automatically falls back to `.json` if `.toon` is not found, so existing workflows continue to work without changes.
@@ -301,35 +306,35 @@ infra-graph build . --format json     # opt in to legacy graph.json
 
 ```bash
 # Build the graph
-infra-graph build .                     # full build (writes graph.toon by default)
-infra-graph build . --format json       # opt in to legacy graph.json output
-infra-graph build . --update            # incremental (only changed files)
-infra-graph build . --watch             # auto-rebuild on file saves
+iaclens build .                     # full build (writes graph.toon by default)
+iaclens build . --format json       # opt in to legacy graph.json output
+iaclens build . --update            # incremental (only changed files)
+iaclens build . --watch             # auto-rebuild on file saves
 
 # Federate multiple repo graphs
-infra-graph federate repo1/graph.toon repo2/graph.toon repo3/graph.toon \
+iaclens federate repo1/graph.toon repo2/graph.toon repo3/graph.toon \
   --output ./federated-graph.toon
 
 # Query from the terminal
-infra-graph query "what does aws_instance.web depend on?"
-infra-graph blast-radius resource.aws_vpc.main
-infra-graph path "Deployment/default/api" "ConfigMap/default/app-config"
+iaclens query "what does aws_instance.web depend on?"
+iaclens blast-radius resource.aws_vpc.main
+iaclens path "Deployment/default/api" "ConfigMap/default/app-config"
 
 # Inspect
-infra-graph status                      # node / edge / community counts
-infra-graph visualize                   # open interactive vis.js graph in browser
+iaclens status                      # node / edge / community counts
+iaclens visualize                   # open interactive vis.js graph in browser
 
 # Server
-infra-graph serve                       # start MCP stdio server (uses graph.toon)
-infra-graph serve --graph /path/to/federated-graph.toon   # load any graph file
+iaclens serve                       # start MCP stdio server (uses graph.toon)
+iaclens serve --graph /path/to/federated-graph.toon   # load any graph file
 
 # Install
-infra-graph install                     # auto-detect AI assistant
-infra-graph install --platform claude-code
-infra-graph install --platform cursor
-infra-graph install --platform codex
-infra-graph install --platform opencode
-infra-graph install --federated ./federated-graph.toon    # add dual-graph MCP entry
+iaclens install                     # auto-detect AI assistant
+iaclens install --platform claude-code
+iaclens install --platform cursor
+iaclens install --platform codex
+iaclens install --platform opencode
+iaclens install --federated ./federated-graph.toon    # add dual-graph MCP entry
 ```
 
 ---
@@ -344,7 +349,7 @@ infra-graph install --federated ./federated-graph.toon    # add dual-graph MCP e
 | ArgoCD GitOps repo | 70 YAML | ~29,600 | ~650 | **~46×** |
 | Small single-service Compose | 4 files | ~1,200 | ~950 | ~1.3× |
 
-> **Small repo note:** For repos under ~20 files, graph overhead can exceed raw file size. infra-graph pays off at scale — when questions span multiple files and change frequently.
+> **Small repo note:** For repos under ~20 files, graph overhead can exceed raw file size. iaclens pays off at scale — when questions span multiple files and change frequently.
 
 ---
 
@@ -359,7 +364,7 @@ Kubernetes label-selector matching runs as a cross-file sweep: a label inverted 
 **Output — TOON serialization**
 After both passes, the graph is serialized to `graph.toon` using TOON (Token-Oriented Object Notation). Uniform arrays (node lists, edge lists) are encoded in a compact tabular form that is ~40% smaller in token count than equivalent JSON. Use `--format json` to opt in to the legacy format.
 
-**Optional — Federation pass (`infra-graph federate`)**
+**Optional — Federation pass (`iaclens federate`)**
 Graphs from multiple repositories can be merged into a single `federated-graph.toon` using three resolution strategies: exact node ID match, fuzzy prefix-strip + type match, and attribute/value match (ArgoCD cluster `server_url` → Terraform cluster resource). See [Graph Federation](#graph-federation) for details.
 
 ---
@@ -388,7 +393,7 @@ infra_graph/
 │   └── tools.py              # 10 MCP tool implementations
 ├── install/
 │   ├── claude.py             # .mcp.json + CLAUDE.md writer
-│   ├── cursor.py             # .cursor/rules/infra-graph.mdc
+│   ├── cursor.py             # .cursor/rules/iaclens.mdc
 │   └── codex.py              # AGENTS.md writer
 ├── viz/
 │   └── html_report.py        # vis.js interactive HTML graph
@@ -402,8 +407,8 @@ infra_graph/
 ## Contributing
 
 ```bash
-git clone https://github.com/vparab7/infra-graph
-cd infra-graph
+git clone https://github.com/ScrimReaper/iaclens
+cd iaclens
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
@@ -415,11 +420,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on adding new parsers and 
 
 ## About this fork
 
-**iaclens** is a standalone, independently maintained fork of
-[infra-graph](https://github.com/vparab7/infra-graph) by Vedang Parab. It adds a
-reusable Nix flake and small fixes, and tracks upstream for further changes. The
-Python package and the `infra-graph` command keep their upstream names, so
-upstream changes merge cleanly.
+iaclens is an infrastructure knowledge-graph MCP server. It builds on
+[infra-graph](https://github.com/vparab7/infra-graph) (Apache-2.0) by Vedang
+Parab and tracks it for upstream fixes. The internal Python module keeps its
+upstream name (`infra_graph`) so upstream changes merge cleanly.
 
 ---
 

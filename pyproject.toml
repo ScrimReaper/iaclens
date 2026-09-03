@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "infra-graph7"
+name = "iaclens"
 version = "0.3.1"
 description = "Knowledge graph plugin for Terraform, Kubernetes, GitHub Actions, and Docker Compose infrastructure files"
 readme = "README.md"
@@ -48,7 +48,7 @@ dev = ["pytest>=7", "pytest-cov", "ruff>=0.4", "mypy>=1.0"]
 deep = ["graspologic>=3.0"]
 
 [project.scripts]
-infra-graph = "infra_graph.cli:cli"
+iaclens = "infra_graph.cli:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["infra_graph"]

@@ -1,5 +1,5 @@
 """
-Install infra-graph for Claude Code:
+Install iaclens for Claude Code:
   - Write .mcp.json
   - Append section to CLAUDE.md
 """
@@ -11,18 +11,18 @@ from pathlib import Path
 
 _MCP_JSON = {
     "mcpServers": {
-        "infra-graph": {
-            "command": "infra-graph",
+        "iaclens": {
+            "command": "iaclens",
             "args": ["serve"],
         }
     }
 }
 
 _CLAUDE_MD_SECTION = """
-## MCP Tools: infra-graph
+## MCP Tools: iaclens
 
 **IMPORTANT: This project has an infrastructure knowledge graph. ALWAYS use the
-infra-graph MCP tools BEFORE using Grep/Glob/Read to explore infrastructure files.**
+iaclens MCP tools BEFORE using Grep/Glob/Read to explore infrastructure files.**
 The graph is faster, cheaper (fewer tokens), and gives you structural context
 (blast radius, dependencies, community clusters) that file scanning cannot.
 
@@ -60,7 +60,7 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
     Args:
         project_root: The project directory to install into.
         federated_graph: Optional path to a federated graph file.  When
-            provided, a second ``"infra-graph-federated"`` entry is written
+            provided, a second ``"iaclens-federated"`` entry is written
             to ``.mcp.json`` pointing at the given file.
 
     Returns a dict of {filename: action} for reporting.
@@ -76,10 +76,10 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
         except Exception:
             existing = {}
         servers = existing.setdefault("mcpServers", {})
-        servers["infra-graph"] = _MCP_JSON["mcpServers"]["infra-graph"]
+        servers["iaclens"] = _MCP_JSON["mcpServers"]["iaclens"]
         if federated_graph is not None:
-            servers["infra-graph-federated"] = {
-                "command": "infra-graph",
+            servers["iaclens-federated"] = {
+                "command": "iaclens",
                 "args": ["serve", "--graph", str(federated_graph.resolve())],
             }
         mcp_json_path.write_text(json.dumps(existing, indent=2) + "\n")
@@ -87,8 +87,8 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
     else:
         config = dict(_MCP_JSON)
         if federated_graph is not None:
-            config["mcpServers"]["infra-graph-federated"] = {
-                "command": "infra-graph",
+            config["mcpServers"]["iaclens-federated"] = {
+                "command": "iaclens",
                 "args": ["serve", "--graph", str(federated_graph.resolve())],
             }
         mcp_json_path.write_text(json.dumps(config, indent=2) + "\n")
@@ -96,7 +96,7 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
 
     # ── CLAUDE.md ──────────────────────────────────────────────────────────
     claude_md_path = project_root / "CLAUDE.md"
-    marker = "## MCP Tools: infra-graph"
+    marker = "## MCP Tools: iaclens"
 
     if claude_md_path.exists():
         existing_content = claude_md_path.read_text()
