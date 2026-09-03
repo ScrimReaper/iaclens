@@ -46,8 +46,8 @@ class GraphBuilder:
 
         self.graph: nx.DiGraph = nx.DiGraph()
         self._cache: dict[str, str] = {}  # filepath → sha256
-        self._tf_parser = TerraformParser()
-        self._yaml_parser = YAMLParser()
+        self._tf_parser = TerraformParser(self.project_root)
+        self._yaml_parser = YAMLParser(self.project_root)
 
     # ── Persistence ──────────────────────────────────────────────────────────
 

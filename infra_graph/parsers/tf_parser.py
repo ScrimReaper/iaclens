@@ -101,6 +101,9 @@ def _classify_interp(expr: str) -> tuple[str, str]:
 class TerraformParser:
     """Parse Terraform .tf files and emit graph nodes + edges."""
 
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root.resolve()
+
     def parse_file(self, path: Path) -> dict[str, Any]:
         """
         Parse a single .tf file.

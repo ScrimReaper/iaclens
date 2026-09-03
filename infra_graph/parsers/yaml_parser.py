@@ -15,6 +15,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
+from ._ids import qualified, rel_posix
 from .actions_schema import ActionsParser
 from .ansible_schema import AnsibleParser
 from .compose_schema import ComposeParser
@@ -57,7 +58,8 @@ def _strip_helm_directives(text: str) -> str:
 class YAMLParser:
     """Dispatching parser for all YAML-based infrastructure files."""
 
-    def __init__(self) -> None:
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root.resolve()
         self._k8s = KubernetesParser()
         self._actions = ActionsParser()
         self._compose = ComposeParser()
@@ -131,7 +133,7 @@ class YAMLParser:
         # ── Generic YAML fallback — any parseable YAML dict → config node ─────
         for doc in docs:
             if isinstance(doc, dict) and doc:
-                config_id = f"config/{path.stem}"
+                config_id = qualified("config", rel_posix(path, self._root), path.stem)
                 return {
                     "nodes": [{
                         "id": config_id,
@@ -150,9 +152,14 @@ class YAMLParser:
 
     def finalize(self) -> list[dict]:
         """
-        Call after all files are parsed.
-        Runs selector resolution for Kubernetes and returns extra edges.
+        Call after all files are parsed. Aggregates every sub-parser's
+        cross-file resolution edges (k8s selectors plus any sub-parser
+        exposing a callable `finalize()`).
         """
         extra_edges = self._k8s.resolve_selectors()
         extra_edges += self._k8s.resolve_cluster_selectors()
+        for parser in (self._ansible, self._compose, self._helm, self._actions):
+            fn = getattr(parser, "finalize", None)
+            if callable(fn):
+                extra_edges += fn()
         return extra_edges
