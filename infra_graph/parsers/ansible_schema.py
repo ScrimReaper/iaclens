@@ -104,11 +104,8 @@ class AnsibleParser:
     once at the end to resolve cross-file edges (e.g. role -> task_file).
     """
 
-    def __init__(self, project_root: Path | None = None) -> None:
-        # `project_root` defaults to cwd so the parser stays usable
-        # standalone (e.g. existing single-file tests); real callers
-        # (YAMLParser) always pass the actual project root.
-        self._root = (project_root or Path.cwd()).resolve()
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root.resolve()
 
         # ── Accumulators (populated by parse_file, resolved by finalize) ────
         self._roles: dict[str, dict] = {}  # role_id -> role node
@@ -148,6 +145,11 @@ class AnsibleParser:
         self._host_vars: dict[str, str] = {}  # host_name -> vars_id
         self._role_vars_pending: list[tuple[str, str]] = []  # (role_name, vars_id)
 
+        # Meta deps (Task 5): roles/<name>/meta/main.yml `dependencies:` ->
+        # role -> role `depends_on` edges, resolved in finalize() since the
+        # dependency role may be defined/discovered in a different file.
+        self._role_deps_pending: list[tuple[str, str]] = []  # (role_name, dep_role_name)
+
     def is_ansible_file(self, path: Path) -> bool:
         """Return True if the file appears to be an Ansible playbook, task
         file, or vars file (group_vars/host_vars/role defaults/role vars).
@@ -163,6 +165,8 @@ class AnsibleParser:
             return True
         role_name = self._role_name_from_path(path)
         if role_name and self._role_vars_kind(path):
+            return True
+        if role_name and self._role_meta_kind(path):
             return True
         try:
             text = path.read_text(encoding="utf-8")
@@ -185,6 +189,8 @@ class AnsibleParser:
         role_vars_kind = self._role_vars_kind(path) if role_name else None
         if role_name and role_vars_kind:
             return self._parse_role_vars_file(path, role_name, role_vars_kind)
+        if role_name and self._role_meta_kind(path):
+            return self._parse_role_meta_file(path, role_name)
 
         try:
             text = path.read_text(encoding="utf-8")
@@ -218,6 +224,8 @@ class AnsibleParser:
           discovered under `roles/<name>/` (Task 4).
         - group_vars/host_vars -> play (`uses_vars`), resolved by matching
           the group/host name against the play's `hosts:` string (Task 4).
+        - role -> role (`depends_on`) for every `dependencies:` entry in
+          `roles/<name>/meta/main.yml` (Task 5).
 
         Idempotent: pending lists are cleared after resolution, so a second
         `finalize()` call (or a stray double-call from a caller) emits no
@@ -332,6 +340,18 @@ class AnsibleParser:
                         "provenance": "INFERRED",
                     })
         self._host_vars.clear()
+
+        for role_name, dep_name in self._role_deps_pending:
+            role_id = self._ensure_role(role_name)
+            dep_id = self._ensure_role(dep_name)
+            edges.append({
+                "from": role_id,
+                "to": dep_id,
+                "type": "depends_on",
+                "confidence": 1.0,
+                "provenance": "EXTRACTED",
+            })
+        self._role_deps_pending.clear()
 
         return edges
 
@@ -537,6 +557,29 @@ class AnsibleParser:
         self._role_vars_pending.append((role_name, vars_id))
         return {"nodes": nodes, "edges": []}
 
+    def _parse_role_meta_file(self, path: Path, role_name: str) -> dict[str, Any]:
+        """`roles/<name>/meta/main.yml` `dependencies:` -> pending
+        (role_name, dep_role_name) pairs, resolved to `depends_on` edges in
+        `finalize()` (the dependency role may be defined/discovered in a
+        different file, parsed before or after this one)."""
+        nodes: list[dict] = []
+        try:
+            text = path.read_text(encoding="utf-8")
+            docs = _yaml.load(text)
+        except Exception as exc:
+            warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
+            return {"nodes": nodes, "edges": []}
+
+        self._ensure_role(role_name, nodes)  # lazily emits the role node too
+
+        dependencies = docs.get("dependencies") if isinstance(docs, dict) else None
+        for dep in dependencies or []:
+            dep_name = self._role_name(dep)
+            if dep_name:
+                self._role_deps_pending.append((role_name, dep_name))
+
+        return {"nodes": nodes, "edges": []}
+
     def _make_vars_node(
         self, vars_id: str, name: str, path: Path, labels: dict[str, Any]
     ) -> list[dict]:
@@ -603,6 +646,20 @@ class AnsibleParser:
             return None
         kind = parts[idx + 2]
         return kind if kind in ("defaults", "vars") else None
+
+    @staticmethod
+    def _role_meta_kind(path: Path) -> str | None:
+        """`roles/<name>/meta/main.yml` (or any file under `meta/`) -> "meta",
+        else None. Path-only, like `_role_vars_kind`: `meta/main.yml` is a
+        plain mapping, not a task list, so the content-shape sniffs never
+        recognize it."""
+        parts = path.parts
+        if "roles" not in parts:
+            return None
+        idx = parts.index("roles")
+        if idx + 2 >= len(parts):
+            return None
+        return "meta" if parts[idx + 2] == "meta" else None
 
     @staticmethod
     def _group_or_host_name_from_path(path: Path, segment: str) -> str | None:

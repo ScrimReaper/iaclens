@@ -265,6 +265,14 @@ def test_list_form_hosts_still_links_host_vars():
     assert ("vars/host/web1", "play/site.yml#db1,db2", "uses_vars") not in got
 
 
+def test_meta_dependencies_produce_depends_on_edges():
+    _, edges = _graph(FX)
+    got = [
+        (e["from"], e["to"], e["type"], e["confidence"], e["provenance"]) for e in edges
+    ]
+    assert ("role/nginx", "role/common", "depends_on", 1.0, "EXTRACTED") in got
+
+
 def test_finalize_is_idempotent_no_duplicate_edges():
     """Calling finalize() twice must not double-emit pending-derived edges."""
     from infra_graph.parsers.yaml_parser import YAMLParser
