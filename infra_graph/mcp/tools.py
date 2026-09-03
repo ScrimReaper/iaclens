@@ -1,5 +1,5 @@
 """
-10 MCP tool implementations for the infra-graph plugin.
+10 MCP tool implementations for the iaclens plugin.
 """
 
 from __future__ import annotations

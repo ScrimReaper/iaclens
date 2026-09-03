@@ -51,7 +51,7 @@ def generate_report(graph: nx.DiGraph, out_dir: Path, stats: dict[str, Any] | No
 
     lines: list[str] = []
 
-    lines.append("# infra-graph: Graph Report")
+    lines.append("# iaclens: Graph Report")
     lines.append(f"\n_Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}_\n")
 
     # ── Stats ────────────────────────────────────────────────────────────────

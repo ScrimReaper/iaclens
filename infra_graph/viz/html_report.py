@@ -25,7 +25,7 @@ _HTML_TEMPLATE = """\
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>infra-graph: {title}</title>
+  <title>iaclens: {title}</title>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -62,7 +62,7 @@ _HTML_TEMPLATE = """\
 </head>
 <body>
   <div id="header">
-    <h1>infra-graph</h1>
+    <h1>iaclens</h1>
     <span class="stats">{node_count} nodes &bull; {edge_count} edges &bull; {community_count} communities</span>
   </div>
   <div id="main">

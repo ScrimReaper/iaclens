@@ -18,7 +18,7 @@ from ..parsers.yaml_parser import YAMLParser
 from .community import assign_communities
 
 # Output directory name
-_OUT_DIR = "infra-graph-out"
+_OUT_DIR = "iaclens-out"
 _GRAPH_FILE = "graph.toon"
 _GRAPH_FILE_JSON = "graph.json"
 _CACHE_FILE = "cache/file_hashes.json"

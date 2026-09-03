@@ -1,5 +1,5 @@
 """
-MCP stdio server for infra-graph.
+MCP stdio server for iaclens.
 
 Exposes 10 tools:
   get_minimal_context, get_blast_radius, query_graph,
@@ -26,7 +26,7 @@ except ImportError:
 
 from . import tools as T
 
-_OUT_DIR = "infra-graph-out"
+_OUT_DIR = "iaclens-out"
 _GRAPH_FILE = "graph.toon"
 _GRAPH_FILE_JSON = "graph.json"
 
@@ -37,8 +37,8 @@ def _load_graph(project_root: Path, graph_file: Path | None = None) -> nx.DiGrap
 
     Search order:
       1. ``graph_file`` if explicitly provided
-      2. ``project_root/infra-graph-out/graph.toon``
-      3. ``project_root/infra-graph-out/graph.json``
+      2. ``project_root/iaclens-out/graph.toon``
+      3. ``project_root/iaclens-out/graph.json``
     """
     import warnings
 
@@ -101,7 +101,7 @@ def run_server(project_root: Path | None = None, graph_file: Path | None = None)
     # Load graph at startup
     graph = _load_graph(project_root, graph_file=graph_file)
 
-    server = Server("infra-graph")
+    server = Server("iaclens")
 
     @server.list_tools()
     async def list_tools() -> list[mcp_types.Tool]:

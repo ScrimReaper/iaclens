@@ -290,8 +290,8 @@ def federate(paths: tuple[str, ...], output: str | None, fmt: str) -> None:
     for p in paths:
         pp = Path(p).resolve()
         if pp.is_dir():
-            toon_file = pp / "infra-graph-out" / "graph.toon"
-            json_file = pp / "infra-graph-out" / "graph.json"
+            toon_file = pp / "iaclens-out" / "graph.toon"
+            json_file = pp / "iaclens-out" / "graph.json"
             if toon_file.exists():
                 graph_files.append(toon_file)
             elif json_file.exists():
