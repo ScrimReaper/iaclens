@@ -309,25 +309,15 @@ class GraphBuilder:
         return result
 
     def search(self, query: str) -> list[dict]:
-        """Keyword search across node ids, names, types, labels."""
-        query_lower = query.lower()
+        """Keyword search across node ids, names, types, labels.
+
+        Matches any term; nodes matching more terms rank higher.
+        """
+        from infra_graph.graph.search import search_nodes
+
         results = []
-        for nid, attrs in self.graph.nodes(data=True):
-            score = 0
-            if query_lower in nid.lower():
-                score += 3
-            if query_lower in str(attrs.get("name", "")).lower():
-                score += 2
-            if query_lower in str(attrs.get("type", "")).lower():
-                score += 1
-            if query_lower in str(attrs.get("kind", "")).lower():
-                score += 1
-            labels_str = " ".join(f"{k}={v}" for k, v in (attrs.get("labels") or {}).items())
-            if query_lower in labels_str.lower():
-                score += 1
-            if score > 0:
-                node_data = {"id": nid, "score": score}
-                node_data.update(attrs)
-                results.append(node_data)
-        results.sort(key=lambda x: x["score"], reverse=True)
+        for r in search_nodes(self.graph, query):
+            node_data = {"id": r["id"], "score": r["score"]}
+            node_data.update(r["attrs"])
+            results.append(node_data)
         return results

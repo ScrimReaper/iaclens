@@ -3,7 +3,7 @@ iaclens CLI entry point.
 
 Commands:
   build <path> [--update]
-  query "<question>"
+  query "<terms>"
   blast-radius <node_id_or_file>
   path <from> <to>
   status
@@ -81,20 +81,20 @@ def build(path: str, update: bool, fmt: str) -> None:
 # ── query ─────────────────────────────────────────────────────────────────────
 
 @cli.command()
-@click.argument("question")
+@click.argument("terms")
 @click.option("--path", default=".", type=click.Path(exists=True, file_okay=False))
-def query(question: str, path: str) -> None:
-    """Search the graph and print relevant context."""
+def query(terms: str, path: str) -> None:
+    """Keyword search. Matches any term; nodes matching more terms rank higher."""
     project_root = Path(path).resolve()
     builder = _get_builder(project_root)
     _load_graph_or_exit(builder)
 
-    results = builder.search(question)
+    results = builder.search(terms)
     if not results:
         click.echo("No matching resources found.")
         return
 
-    click.echo(f"Top results for '{question}':\n")
+    click.echo(f"Top results for '{terms}':\n")
     for r in results[:10]:
         click.echo(f"  {r['id']}  [{r['type']}/{r['kind']}]  score={r['score']}")
         if r.get("file"):

@@ -474,48 +474,26 @@ def build_or_update_graph(
 def search_resources(graph: nx.DiGraph, query: str) -> dict[str, Any]:
     """
     Keyword search across node names, types, labels.
+
+    Matches any term; nodes matching more terms rank higher.
     """
-    query_lower = query.lower()
+    from infra_graph.graph.search import search_nodes
+
     results = []
+    for r in search_nodes(graph, query):
+        attrs = r["attrs"]
+        results.append(
+            {
+                "id": r["id"],
+                "score": r["score"],
+                "matched_fields": r["matched_fields"],
+                "type": attrs.get("type", ""),
+                "kind": attrs.get("kind", ""),
+                "file": attrs.get("file"),
+                "degree": graph.degree(r["id"]),
+            }
+        )
 
-    for nid, attrs in graph.nodes(data=True):
-        score = 0
-        matched_fields = []
-
-        if query_lower in nid.lower():
-            score += 3
-            matched_fields.append("id")
-        name = str(attrs.get("name", "")).lower()
-        if query_lower in name:
-            score += 2
-            matched_fields.append("name")
-        node_type = str(attrs.get("type", "")).lower()
-        if query_lower in node_type:
-            score += 1
-            matched_fields.append("type")
-        kind = str(attrs.get("kind", "")).lower()
-        if query_lower in kind:
-            score += 1
-            matched_fields.append("kind")
-        labels_str = " ".join(f"{k}={v}" for k, v in (attrs.get("labels") or {}).items()).lower()
-        if query_lower in labels_str:
-            score += 1
-            matched_fields.append("labels")
-
-        if score > 0:
-            results.append(
-                {
-                    "id": nid,
-                    "score": score,
-                    "matched_fields": matched_fields,
-                    "type": attrs.get("type", ""),
-                    "kind": attrs.get("kind", ""),
-                    "file": attrs.get("file"),
-                    "degree": graph.degree(nid),
-                }
-            )
-
-    results.sort(key=lambda x: x["score"], reverse=True)
     return {
         "query": query,
         "results": results[:20],

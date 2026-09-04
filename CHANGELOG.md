@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `query` now tokenizes multi-word input and ranks by matched terms, instead of
+  matching the whole phrase as one literal substring (which returned nothing).
+  CLI help and the argument name now say keyword search. CLI and MCP share one
+  search helper.
+
 ## [0.6.0] — 2026-09-03
 
 ### Added
