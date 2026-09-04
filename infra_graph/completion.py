@@ -28,11 +28,13 @@ def emit_completion_script(shell: str, prog_name: str = "iaclens") -> str:
 
     Raises ``ValueError`` for a shell Click cannot complete.
     """
-    comp_cls = get_completion_class(shell)
-    if comp_cls is None:
+    if shell not in SUPPORTED_SHELLS:
         raise ValueError(
             f"Unsupported shell: {shell!r}. Choose one of {', '.join(SUPPORTED_SHELLS)}."
         )
+    comp_cls = get_completion_class(shell)
+    if comp_cls is None:  # pragma: no cover - registry always has our shells
+        raise ValueError(f"Shell {shell!r} has no Click completion class.")
 
     from .cli import cli
 
