@@ -116,7 +116,11 @@ def _node_id(kind: str, namespace: str, name: str) -> str:
 
 
 def _get_labels(spec: dict) -> dict[str, str]:
-    raw = spec.get("labels") or {}
+    raw = spec.get("labels")
+    # In a Helm template, `labels:` can render as a scalar string
+    # (e.g. `{{- toYaml .Values.x | nindent 4 }}`), not a mapping.
+    if not isinstance(raw, dict):
+        return {}
     return {k: v for k, v in raw.items() if isinstance(v, str)}
 
 
