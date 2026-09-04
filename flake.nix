@@ -26,6 +26,7 @@
         apps.default = {
           type = "app";
           program = "${pkgs.iaclens}/bin/iaclens";
+          meta.description = "iaclens CLI";
         };
 
         devShells.default = pkgs.mkShell {
