@@ -13,6 +13,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `blast-radius`, `query`, and `path` arguments once a graph is built. Node-id
   completion reads `iaclens-out/graph.toon` and stays silent (never errors) when
   no graph exists yet.
+- The Nix package now installs bash, zsh, and fish completions into the standard
+  completion directories (via `installShellFiles`), so completion works out of
+  the box for any supported shell that sources those directories — no shell-rc
+  changes needed on NixOS or home-manager.
 
 ### Fixed
 - `query` now tokenizes multi-word input and ranks by matched terms, instead of
