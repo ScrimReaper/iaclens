@@ -135,7 +135,7 @@ iaclens serve                   # start the MCP stdio server
 iaclens install                 # wire iaclens into your AI assistant
 
 iaclens status                  # show node/edge/community counts
-iaclens query "<question>"      # search the graph from the terminal
+iaclens query "<terms>"         # keyword search: matches any term, ranks by matches
 iaclens blast-radius <node_id>  # list everything a change to <node_id> affects
 iaclens path <from> <to>        # shortest dependency path between two nodes
 iaclens visualize                # open an interactive HTML graph in your browser

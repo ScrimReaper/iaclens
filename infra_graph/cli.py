@@ -3,7 +3,7 @@ iaclens CLI entry point.
 
 Commands:
   build <path> [--update]
-  query "<question>"
+  query "<terms>"
   blast-radius <node_id_or_file>
   path <from> <to>
   status
