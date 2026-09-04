@@ -1,6 +1,7 @@
 """Tests for the graph builder, blast radius, and community detection."""
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -150,6 +151,19 @@ def test_search(builder):
     assert len(results) > 0
     top = results[0]
     assert "vpc" in top["id"].lower()
+
+
+def test_search_multi_term_non_empty(builder):
+    # derive a real multi-word query from an actual node id, so we do not hardcode
+    # fixture contents. A phrase like this used to score zero as one literal substring.
+    node_id = next(n for n in builder.graph.nodes() if "/" in n)
+    terms = [p for p in re.split(r"[^A-Za-z0-9]+", node_id) if len(p) >= 2]
+    query = " ".join(terms[:3])
+    results = builder.search(query)
+    assert results  # non-empty
+    assert any(r["id"] == node_id for r in results)
+    assert results[0]["score"] >= results[-1]["score"]  # sorted desc
+    assert "id" in results[0] and "score" in results[0]
 
 
 def test_get_node(builder):

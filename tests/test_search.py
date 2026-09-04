@@ -8,6 +8,7 @@ type/kind/label value here).
 import networkx as nx
 
 from infra_graph.graph.search import search_nodes
+from infra_graph.mcp import tools as T
 
 # A: "wazuh" only in id, "secret" only in name -> matches both terms, distinct fields
 # B: "wazuh" only in id
@@ -56,3 +57,11 @@ def test_matched_fields_reported():
 def test_short_and_empty_tokens_dropped():
     assert search_nodes(_graph(), "a") == []
     assert search_nodes(_graph(), "   ") == []
+
+
+def test_search_resources_shape_preserved():
+    out = T.search_resources(_graph(), "wazuh secret")
+    assert set(out) == {"query", "results", "total_matches"}
+    top = out["results"][0]
+    assert set(top) >= {"id", "score", "matched_fields", "type", "kind", "file", "degree"}
+    assert top["id"] == _A
