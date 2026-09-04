@@ -230,3 +230,25 @@ def test_line_numbers_extracted(argocd_result):
         assert node["line"] is not None, f"Node {node['id']} has null line number"
         assert isinstance(node["line"], int)
         assert node["line"] >= 1
+
+
+def test_templated_string_labels_do_not_crash(tmp_path):
+    """A Helm-templated metadata.labels renders as a scalar string, not a map.
+
+    The parser must tolerate that (treat labels as empty) instead of raising
+    'str' object has no attribute 'items'. Regression for a redis-ha chart
+    PrometheusRule template.
+    """
+    text = (
+        'apiVersion: monitoring.coreos.com/v1\n'
+        'kind: PrometheusRule\n'
+        'metadata:\n'
+        '  name: "{{ template \\"redis-ha.fullname\\" . }}"\n'
+        '  labels: "{{- toYaml .Values.prometheusRule.additionalLabels | nindent 4 }}"\n'
+        'spec: {}\n'
+    )
+    parser = KubernetesParser()
+    result = parser.parse_file(tmp_path / "redis-ha-prometheus-rule.yaml",
+                               preprocessed_text=text)
+    node = next(n for n in result["nodes"] if n["type"] == "PrometheusRule")
+    assert node["labels"] == {}

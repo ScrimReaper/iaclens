@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-09-04
+
+### Fixed
+- Kubernetes parser no longer crashes on a Helm-templated `metadata.labels`. When
+  a chart template renders `labels:` as a scalar (e.g.
+  `{{- toYaml .Values.x | nindent 4 }}`), the stripped YAML leaves `labels` a
+  string; `_get_labels` now treats any non-mapping value as no labels instead of
+  raising `'str' object has no attribute 'items'` (seen on a redis-ha
+  `PrometheusRule` template), which had dropped the whole file from the graph.
+
 ## [0.7.0] — 2026-09-04
 
 ### Added
@@ -136,7 +146,8 @@ non-functional `--mode deep` option and the PyPI publish workflow.
 - `infra-graph install` for Claude Code, Cursor, Codex, and OpenCode.
 - `/infra-graph` Claude Code skill.
 
-[Unreleased]: https://github.com/ScrimReaper/iaclens/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/ScrimReaper/iaclens/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/ScrimReaper/iaclens/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ScrimReaper/iaclens/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ScrimReaper/iaclens/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ScrimReaper/iaclens/compare/v0.4.0...v0.5.0
