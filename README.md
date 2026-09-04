@@ -141,9 +141,25 @@ iaclens path <from> <to>        # shortest dependency path between two nodes
 iaclens visualize                # open an interactive HTML graph in your browser
 
 iaclens federate <graph>...     # merge multiple repo graphs into one cross-repo graph
+
+iaclens completion <shell>      # print the bash/zsh/fish completion hook
 ```
 
 Run `iaclens <command> --help` for the full option list on any command.
+
+### Shell completion
+
+`iaclens completion <shell>` prints a completion hook for `bash`, `zsh`, or `fish`. Evaluate it to complete commands and options, and to complete graph node ids for the `blast-radius`, `query`, and `path` arguments once a graph is built.
+
+```bash
+# try it in the current shell
+eval "$(iaclens completion bash)"
+
+# make it permanent (bash example)
+echo 'eval "$(iaclens completion bash)"' >> ~/.bashrc
+```
+
+Node-id completion reads `iaclens-out/graph.toon` from the current directory. It suggests nothing (rather than erroring) when no graph is built yet.
 
 ### Graph federation
 

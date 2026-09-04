@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- `iaclens completion <shell>` prints a shell completion hook for bash, zsh, or
+  fish. It completes commands and options, and suggests graph node ids for the
+  `blast-radius`, `query`, and `path` arguments once a graph is built. Node-id
+  completion reads `iaclens-out/graph.toon` and stays silent (never errors) when
+  no graph exists yet.
+
 ### Fixed
 - `query` now tokenizes multi-word input and ranks by matched terms, instead of
   matching the whole phrase as one literal substring (which returned nothing).

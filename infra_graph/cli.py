@@ -10,6 +10,7 @@ Commands:
   visualize
   serve                    (auto-watches for changes; IACLENS_NO_WATCH=1 to disable)
   install [--platform claude-code|cursor|codex|opencode]
+  completion <shell>       (print the bash/zsh/fish completion hook)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import click
 
 from infra_graph import __version__
 
+from .completion import SUPPORTED_SHELLS, complete_node_ids, emit_completion_script
 from .graph.blast_radius import find_path, get_blast_radius
 from .graph.builder import GraphBuilder
 from .graph.report import generate_report
@@ -81,7 +83,7 @@ def build(path: str, update: bool, fmt: str) -> None:
 # ── query ─────────────────────────────────────────────────────────────────────
 
 @cli.command()
-@click.argument("terms")
+@click.argument("terms", shell_complete=complete_node_ids)
 @click.option("--path", default=".", type=click.Path(exists=True, file_okay=False))
 def query(terms: str, path: str) -> None:
     """Keyword search. Matches any term; nodes matching more terms rank higher."""
@@ -105,7 +107,7 @@ def query(terms: str, path: str) -> None:
 # ── blast-radius ──────────────────────────────────────────────────────────────
 
 @cli.command("blast-radius")
-@click.argument("node_id")
+@click.argument("node_id", shell_complete=complete_node_ids)
 @click.option("--path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option("--max-depth", default=5, show_default=True)
 def blast_radius_cmd(node_id: str, path: str, max_depth: int) -> None:
@@ -135,8 +137,8 @@ def blast_radius_cmd(node_id: str, path: str, max_depth: int) -> None:
 # ── path ──────────────────────────────────────────────────────────────────────
 
 @cli.command("path")
-@click.argument("from_node")
-@click.argument("to_node")
+@click.argument("from_node", shell_complete=complete_node_ids)
+@click.argument("to_node", shell_complete=complete_node_ids)
 @click.option("--path", "project_path", default=".", type=click.Path(exists=True, file_okay=False))
 def path_cmd(from_node: str, to_node: str, project_path: str) -> None:
     """Find the shortest dependency path between two nodes."""
@@ -402,3 +404,21 @@ def install(platform: str, path: str, federated: str | None) -> None:
         click.echo(f"  {action:10s}  {filename}")
 
     click.echo("\nDone. Run `iaclens build .` to build the graph.")
+
+
+# ── completion ──────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.argument("shell", type=click.Choice(SUPPORTED_SHELLS))
+def completion(shell: str) -> None:
+    """Print the shell completion hook for SHELL.
+
+    Enable it by evaluating the output. For example, in bash:
+
+        eval "$(iaclens completion bash)"
+
+    Add that line to your shell rc file to make it permanent. Completion
+    covers commands and options, and suggests graph node ids for the
+    `blast-radius`, `query`, and `path` arguments once a graph is built.
+    """
+    click.echo(emit_completion_script(shell))
