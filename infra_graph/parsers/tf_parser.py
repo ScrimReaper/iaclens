@@ -29,6 +29,17 @@ _DYNAMIC_RE = re.compile(r"[+\-*/]|format\(|join\(")
 # emit an edge for these.
 _ITERATION_CTX_RE = re.compile(r"^(each|count)\.")
 
+# path.*/terraform.*/self.* are compile-time context, not graph nodes — skip
+# them like each./count. (never emit an edge).
+_COMPILE_TIME_CTX_RE = re.compile(r"^(path|terraform|self)\.")
+
+# A syntactically valid HCL reference path: dotted identifier segments with
+# optional numeric index subscripts (aws_vpc.main, foo.bar[0].baz). Anything
+# with parens, quotes, brackets-with-non-digits, or whitespace — a function
+# call, a for-comprehension, an interpolation fragment — fails this and is
+# dropped instead of becoming a typeless `unknown` stub node.
+_CLEAN_REF_RE = re.compile(r"^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*|\[\d+\])*$")
+
 # HCL2 wraps string keys in double-quotes sometimes; strip them
 _QUOTE_RE = re.compile(r'^"(.*)"$')
 
@@ -182,12 +193,19 @@ def _classify_interp(expr: str, d: str) -> tuple[str, str]:
     if m:
         return ("references", qualified("resource", d, f"{m.group(1)}.{m.group(2)}"))
 
-    # Fallback: type.name (2-segment, like aws_vpc.main)
-    parts = expr.split(".")
-    if len(parts) >= 2:
-        return ("references", qualified("resource", d, f"{parts[0]}.{parts[1]}"))
+    # Compile-time context (path./terraform./self.) is not a graph node.
+    if _COMPILE_TIME_CTX_RE.match(expr):
+        return ("", "")
 
-    return ("references", expr)
+    # Fallback: only a clean 2+segment reference becomes an edge. Anything
+    # else (templatefile(...) and other calls, for-comprehensions,
+    # interpolation fragments) is unresolvable — drop it so no `unknown` stub
+    # node is created downstream.
+    if _CLEAN_REF_RE.match(expr):
+        parts = expr.split(".")
+        if len(parts) >= 2:
+            return ("references", qualified("resource", d, f"{parts[0]}.{parts[1]}"))
+    return ("", "")
 
 
 class TerraformParser:

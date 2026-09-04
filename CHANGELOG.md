@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matching the whole phrase as one literal substring (which returned nothing).
   CLI help and the argument name now say keyword search. CLI and MCP share one
   search helper.
+- Terraform parser drops unresolvable interpolation targets (`templatefile(...)`,
+  `for`-comprehensions, `path.*`/`terraform.*`/`self.*`) instead of emitting bogus
+  references that became typeless `unknown` stub nodes.
 
 ## [0.6.0] — 2026-09-03
 
