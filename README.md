@@ -159,7 +159,7 @@ eval "$(iaclens completion bash)"
 echo 'eval "$(iaclens completion bash)"' >> ~/.bashrc
 ```
 
-Node-id completion reads `iaclens-out/graph.toon` from the current directory. It suggests nothing (rather than erroring) when no graph is built yet.
+Node-id completion reads `iaclens-out/graph.toon` (or `graph.json`) from the current directory. It suggests nothing (rather than erroring) when no graph is built yet.
 
 ### Graph federation
 

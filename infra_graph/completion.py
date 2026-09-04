@@ -60,10 +60,18 @@ def _load_node_ids(project_root: Path) -> list[str]:
     json_path = out_dir / "graph.json"
 
     if toon_path.exists():
-        from .graph import toon
+        try:
+            from .graph import toon
 
-        graph, _ = toon.load_graph(toon_path)
-        return list(graph.nodes())
+            graph, _ = toon.load_graph(toon_path)
+            ids = list(graph.nodes())
+            if ids:
+                return ids
+        except Exception:
+            pass
+        # graph.toon can be torn mid-write during a `serve` auto-rebuild, which
+        # yields zero nodes (or, defensively, an error). Fall through to a valid
+        # graph.json if one exists, like GraphBuilder.load_graph does.
 
     if json_path.exists():
         import json

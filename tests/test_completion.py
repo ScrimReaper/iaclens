@@ -87,6 +87,19 @@ def test_complete_node_ids_caps_results(tmp_path):
     assert len(got) <= 50
 
 
+def test_complete_node_ids_falls_back_to_json_when_toon_broken(tmp_path):
+    # A torn/broken graph.toon must not hide a valid graph.json sitting next to it.
+    out = tmp_path / "iaclens-out"
+    out.mkdir(parents=True)
+    (out / "graph.toon").write_text("this is not valid toon {{{")
+    (out / "graph.json").write_text(
+        '{"nodes": [{"id": "ns/wazuh/a1"}], "edges": []}'
+    )
+    ctx = _Ctx({"path": str(tmp_path)})
+    got = [c.value for c in complete_node_ids(ctx, None, "wazuh")]
+    assert got == ["ns/wazuh/a1"]
+
+
 def test_complete_node_ids_reads_project_path_param(tmp_path):
     # `path` command uses the option name `project_path`, not `path`.
     _write_graph(tmp_path, ["ns/wazuh/a1"])
