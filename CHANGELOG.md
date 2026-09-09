@@ -7,7 +7,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- `iaclens serve --path A --path B ...` serves several repos as ONE federated
+  graph. Each root is built with its own builder (and keeps its per-repo
+  `iaclens-out/graph.toon`), the graphs are federated in-process, and the
+  server serves the merged graph. Auto-watch covers every root: a change
+  under one root rebuilds only that root and re-federates. `--out <file>`
+  also writes the federated graph after each rebuild. This replaces the
+  external "rebuild every repo, then `iaclens federate`" script that a
+  static `serve --graph` needed to stay fresh. The MCP `build_or_update_graph`
+  tool rebuilds a served root in place and re-federates.
+
 ### Fixed
+- `iaclens serve` crashed on startup with `mcp` 2.x (`'Server' object has no
+  attribute 'list_tools'`): the 2.x SDK removed the low-level decorator API
+  in favour of constructor callbacks. The server now builds its handlers for
+  whichever `mcp` major is installed (1.x decorators or 2.x callbacks). A new
+  stdio test starts the real server and talks to it with the mcp client, so
+  the suite catches this class of break from now on.
+- The auto-watcher ignored file deletions, so a deleted file's nodes stayed in
+  the served graph until some other file changed.
+- A rebuild on the same builder (`serve` auto-watch) started from the
+  previous run's parser state, so nodes and edges from deleted files
+  survived every rebuild (k8s selector index, Ansible plays/roles). Parsers
+  are now recreated per build.
 - `build_or_update_graph` (MCP) reported `graph.json` as the written file; the
   default format is TOON, so it now reports `graph.toon`.
 - Graph, JSON, and file-hash cache writes are atomic (temp file + rename), so a

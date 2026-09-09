@@ -75,3 +75,39 @@ def test_build_tool_reports_the_file_it_wrote(tmp_path):
     assert result["success"] is True
     assert result["graph_file"].endswith("graph.toon")
     assert (tmp_path / "iaclens-out" / "graph.toon").exists()
+
+
+def test_dispatch_build_tool_uses_the_workspace_for_served_roots(tmp_path):
+    from infra_graph.workspace import Workspace
+
+    a = tmp_path / "a"
+    a.mkdir()
+    (a / "conf.yml").write_text("a: 1\n")
+    ws = Workspace([a])
+    ws.build_all()
+    (a / "more.yml").write_text("b: 2\n")
+
+    result = server._dispatch(
+        ws.get(), "build_or_update_graph", {"path": str(a)}, a, source=ws
+    )
+    assert result["success"] is True
+    assert result["federated"] is True
+    assert any(n.endswith("#more") for n in ws.get().nodes)
+
+
+def test_dispatch_build_tool_falls_back_for_foreign_paths(tmp_path):
+    from infra_graph.workspace import Workspace
+
+    a, other = tmp_path / "a", tmp_path / "other"
+    a.mkdir()
+    other.mkdir()
+    (a / "conf.yml").write_text("a: 1\n")
+    (other / "conf.yml").write_text("z: 1\n")
+    ws = Workspace([a])
+    ws.build_all()
+
+    result = server._dispatch(
+        ws.get(), "build_or_update_graph", {"path": str(other)}, a, source=ws
+    )
+    assert result["success"] is True
+    assert "not one of the served roots" in result["note"]
