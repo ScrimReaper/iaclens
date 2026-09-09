@@ -323,3 +323,38 @@ def test_save_graph_leaves_no_temp_files(tmp_path):
     b.save_graph(output_format="json")
     names = sorted(p.name for p in b.out_dir.iterdir())
     assert names == ["cache", "graph.json", "graph.toon"]
+
+
+def test_rebuild_forgets_deleted_files(tmp_path):
+    """`serve` rebuilds on the same GraphBuilder. Sub-parsers keep cross-file
+    state (k8s label index, Ansible plays/roles); a rebuild must start from a
+    clean slate or deleted files keep contributing nodes and edges."""
+    svc = tmp_path / "svc.yaml"
+    svc.write_text(
+        "apiVersion: v1\nkind: Service\nmetadata:\n  name: web\n"
+        "spec:\n  selector:\n    app: web\n"
+    )
+    (tmp_path / "deploy.yaml").write_text(
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
+        "  labels:\n    app: web\nspec: {}\n"
+    )
+    play = tmp_path / "site.yml"
+    play.write_text("- hosts: web\n  roles: [web]\n")
+    (tmp_path / "group_vars").mkdir()
+    (tmp_path / "group_vars" / "web.yml").write_text("x: 1\n")
+
+    b = GraphBuilder(tmp_path)
+    b.build()
+    assert any(a.get("kind") == "Service" for _, a in b.graph.nodes(data=True))
+    assert any(a.get("type") == "play" for _, a in b.graph.nodes(data=True))
+
+    svc.unlink()
+    play.unlink()
+    b.build()
+    kinds = {a.get("kind") for _, a in b.graph.nodes(data=True)}
+    types = {a.get("type") for _, a in b.graph.nodes(data=True)}
+    assert "Service" not in kinds
+    assert "play" not in types
+    for f, t, _ in b.graph.edges(data=True):
+        assert "Service/" not in f and "Service/" not in t
+        assert "play/" not in f and "play/" not in t

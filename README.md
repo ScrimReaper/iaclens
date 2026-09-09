@@ -81,6 +81,14 @@ This starts a local MCP stdio server. Point your assistant's MCP config at this 
 
 `iaclens serve` builds the graph once on startup, then watches the repo and rebuilds automatically whenever a parseable file (`.tf`/`.yml`/`.yaml`) changes. Each rebuild is a full rebuild, debounced so a burst of saves collapses into one rebuild instead of many. Files under `iaclens-out/`, `.git/`, any dot-directory, or excluded by `.infraignore` never trigger a rebuild.
 
+To serve several repos as one graph, repeat `--path`:
+
+```bash
+iaclens serve --path ../terraform --path ../gitops --path ../helm-charts
+```
+
+Each root is built on its own (and keeps its own `iaclens-out/graph.toon`), the graphs are federated in-process, and the server serves the merged graph. A change under one root rebuilds only that root and re-federates. Add `--out ./workspace.toon` to also write the federated graph to a file after each rebuild.
+
 Two environment variables control this:
 
 - `IACLENS_NO_WATCH` — set to disable auto-watching (serve only builds once on startup).
@@ -170,7 +178,15 @@ iaclens federate repo1/iaclens-out/graph.toon repo2/iaclens-out/graph.toon \
   --output ./federated-graph.toon
 ```
 
-`iaclens federate` resolves cross-repo references by exact ID match, then fuzzy name match, then attribute match (for example, matching an ArgoCD cluster Secret to the Terraform cluster resource it points at). Serve the merged graph with:
+`iaclens federate` resolves cross-repo references by exact ID match, then fuzzy name match, then attribute match (for example, matching an ArgoCD cluster Secret to the Terraform cluster resource it points at).
+
+The simplest way to serve a federated graph is to let the server do the merge and keep it fresh:
+
+```bash
+iaclens serve --path repo1 --path repo2
+```
+
+A pre-built file can also be served as-is (static, no auto-watch):
 
 ```bash
 iaclens serve --graph ./federated-graph.toon

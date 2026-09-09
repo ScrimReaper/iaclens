@@ -193,7 +193,7 @@ def start_watching(project_root: Path, builder: Any, scheduler: Any) -> Observer
     """Watch `project_root` for changes, notifying `scheduler` on each one.
 
     Wires a `watchdog` handler that calls `scheduler.notify(path)` only for
-    files `should_trigger` accepts. Returns a started `Observer`; the
+    files `should_trigger` accepts, on create, modify, move, and delete. Returns a started `Observer`; the
     caller owns its lifecycle (`.stop()` + `.join()` on shutdown).
     """
     project_root = Path(project_root)
@@ -217,6 +217,13 @@ def start_watching(project_root: Path, builder: Any, scheduler: Any) -> Observer
             if event.is_directory:
                 return
             self._maybe_notify(event.dest_path)
+
+        def on_deleted(self, event) -> None:  # type: ignore[override]
+            # A deleted file must drop its nodes; without this the graph kept
+            # them until some other file changed.
+            if event.is_directory:
+                return
+            self._maybe_notify(event.src_path)
 
     observer = Observer()
     observer.schedule(_RebuildHandler(), str(project_root), recursive=True)

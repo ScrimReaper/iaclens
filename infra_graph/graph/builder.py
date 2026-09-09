@@ -191,6 +191,12 @@ class GraphBuilder:
         if update_only:
             self.load_graph()
 
+        # Sub-parsers keep cross-file state (k8s label index, Ansible plays,
+        # roles...). A rebuild on the same builder (`serve` auto-watch) must
+        # start clean, or deleted files keep contributing nodes and edges.
+        self._tf_parser = TerraformParser(self.project_root)
+        self._yaml_parser = YAMLParser(self.project_root)
+
         ignore_spec = self._load_ignore_spec()
         files = sorted(self._collect_files(ignore_spec))
 

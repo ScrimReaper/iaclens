@@ -101,8 +101,206 @@ class GraphCache:
         return self._graph
 
 
-def run_server(project_root: Path | None = None, graph_file: Path | None = None) -> None:
-    """Start the MCP stdio server."""
+# The 10 tools, as plain dicts so both mcp 1.x and 2.x can build their Tool models.
+TOOL_SPECS: list[dict[str, Any]] = [
+    dict(
+        name="get_minimal_context",
+        description=(
+            "~100-token summary of the infrastructure graph: "
+            "god nodes, community count, and a quick orientation."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    dict(
+        name="get_blast_radius",
+        description=(
+            "BFS traversal from a node; returns all affected resources "
+            "with depth and edge chain."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "The node ID to start from (e.g. resource.aws_vpc.main)",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Maximum BFS depth (default 5)",
+                    "default": 5,
+                },
+            },
+            "required": ["node_id"],
+        },
+    ),
+    dict(
+        name="query_graph",
+        description=(
+            "BFS/DFS from any node. Supports direction (downstream/upstream/both), "
+            "edge type filtering, and a token budget."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "from_node": {"type": "string"},
+                "direction": {
+                    "type": "string",
+                    "enum": ["downstream", "upstream", "both"],
+                    "default": "downstream",
+                },
+                "edge_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by edge types (empty = all)",
+                },
+                "max_depth": {"type": "integer", "default": 3},
+                "token_budget": {"type": "integer", "default": 2000},
+            },
+            "required": ["from_node"],
+        },
+    ),
+    dict(
+        name="get_resource_context",
+        description="Full context for one resource: edges, community, source file, line.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "node_id": {"type": "string"},
+            },
+            "required": ["node_id"],
+        },
+    ),
+    dict(
+        name="get_architecture_overview",
+        description="Community-level map with coupling warnings.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    dict(
+        name="detect_changes",
+        description=(
+            "Risk-scored impact analysis for a git diff. "
+            "Pass a unified diff string; returns affected resources ranked by risk."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "diff_text": {
+                    "type": "string",
+                    "description": "Unified diff string (output of git diff)",
+                },
+            },
+            "required": ["diff_text"],
+        },
+    ),
+    dict(
+        name="find_hub_nodes",
+        description="Return the highest-degree (most connected) resources.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "top_n": {"type": "integer", "default": 10},
+            },
+            "required": [],
+        },
+    ),
+    dict(
+        name="get_knowledge_gaps",
+        description="Find orphaned resources, AMBIGUOUS edges, and dangling references.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    dict(
+        name="build_or_update_graph",
+        description=(
+            "Trigger a graph rebuild from within the assistant. "
+            "Pass the project path and whether to do an incremental update."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the infrastructure project root",
+                },
+                "update_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, only re-parse changed files",
+                },
+            },
+            "required": ["path"],
+        },
+    ),
+    dict(
+        name="search_resources",
+        description="Keyword search across node names, IDs, types, and labels.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+    ),
+]
+
+
+def _make_server(handle_call: Any) -> Any:
+    """Build the low-level Server for whichever `mcp` major is installed.
+
+    mcp 1.x registers handlers with `@server.list_tools()` /
+    `@server.call_tool()` decorators; mcp 2.x removed them in favour of
+    `Server(name, on_list_tools=..., on_call_tool=...)` callbacks that take a
+    request context and return result models. `handle_call(name, arguments)`
+    returns the list of TextContent for a call.
+    """
+    tools = [mcp_types.Tool(**spec) for spec in TOOL_SPECS]
+
+    if hasattr(Server, "list_tools"):  # mcp 1.x
+        server = Server("iaclens")
+
+        @server.list_tools()
+        async def _list_tools() -> list[mcp_types.Tool]:
+            return tools
+
+        @server.call_tool()
+        async def _call_tool(name: str, arguments: dict[str, Any]) -> list[mcp_types.TextContent]:
+            return await handle_call(name, arguments or {})
+
+        return server
+
+    async def on_list_tools(ctx: Any, params: Any) -> Any:  # mcp 2.x
+        return mcp_types.ListToolsResult(tools=tools)
+
+    async def on_call_tool(ctx: Any, params: Any) -> Any:
+        content = await handle_call(params.name, params.arguments or {})
+        return mcp_types.CallToolResult(content=content)
+
+    return Server("iaclens", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+
+
+def run_server(
+    project_root: Path | None = None,
+    graph_file: Path | None = None,
+    source: Any = None,
+) -> None:
+    """Start the MCP stdio server.
+
+    ``source`` is anything with ``.get() -> nx.DiGraph`` (for example a
+    `Workspace` serving several roots). Without it the graph is read from
+    disk through a `GraphCache`.
+    """
     if not _MCP_AVAILABLE:
         print(
             "ERROR: 'mcp' package is not installed. Run: pip install mcp",
@@ -113,179 +311,23 @@ def run_server(project_root: Path | None = None, graph_file: Path | None = None)
     if project_root is None:
         project_root = Path.cwd()
 
-    cache = GraphCache(project_root, graph_file=graph_file)
-    cache.get()  # load at startup so the first call is served warm
+    if source is None:
+        source = GraphCache(project_root, graph_file=graph_file)
+    source.get()  # load at startup so the first call is served warm
 
-    server = Server("iaclens")
-
-    @server.list_tools()
-    async def list_tools() -> list[mcp_types.Tool]:
-        return [
-            mcp_types.Tool(
-                name="get_minimal_context",
-                description=(
-                    "~100-token summary of the infrastructure graph: "
-                    "god nodes, community count, and a quick orientation."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_blast_radius",
-                description=(
-                    "BFS traversal from a node; returns all affected resources "
-                    "with depth and edge chain."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "node_id": {
-                            "type": "string",
-                            "description": "The node ID to start from (e.g. resource.aws_vpc.main)",
-                        },
-                        "max_depth": {
-                            "type": "integer",
-                            "description": "Maximum BFS depth (default 5)",
-                            "default": 5,
-                        },
-                    },
-                    "required": ["node_id"],
-                },
-            ),
-            mcp_types.Tool(
-                name="query_graph",
-                description=(
-                    "BFS/DFS from any node. Supports direction (downstream/upstream/both), "
-                    "edge type filtering, and a token budget."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "from_node": {"type": "string"},
-                        "direction": {
-                            "type": "string",
-                            "enum": ["downstream", "upstream", "both"],
-                            "default": "downstream",
-                        },
-                        "edge_types": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Filter by edge types (empty = all)",
-                        },
-                        "max_depth": {"type": "integer", "default": 3},
-                        "token_budget": {"type": "integer", "default": 2000},
-                    },
-                    "required": ["from_node"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_resource_context",
-                description="Full context for one resource: edges, community, source file, line.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "node_id": {"type": "string"},
-                    },
-                    "required": ["node_id"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_architecture_overview",
-                description="Community-level map with coupling warnings.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            ),
-            mcp_types.Tool(
-                name="detect_changes",
-                description=(
-                    "Risk-scored impact analysis for a git diff. "
-                    "Pass a unified diff string; returns affected resources ranked by risk."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "diff_text": {
-                            "type": "string",
-                            "description": "Unified diff string (output of git diff)",
-                        },
-                    },
-                    "required": ["diff_text"],
-                },
-            ),
-            mcp_types.Tool(
-                name="find_hub_nodes",
-                description="Return the highest-degree (most connected) resources.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "top_n": {"type": "integer", "default": 10},
-                    },
-                    "required": [],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_knowledge_gaps",
-                description="Find orphaned resources, AMBIGUOUS edges, and dangling references.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            ),
-            mcp_types.Tool(
-                name="build_or_update_graph",
-                description=(
-                    "Trigger a graph rebuild from within the assistant. "
-                    "Pass the project path and whether to do an incremental update."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Absolute path to the infrastructure project root",
-                        },
-                        "update_only": {
-                            "type": "boolean",
-                            "default": False,
-                            "description": "If true, only re-parse changed files",
-                        },
-                    },
-                    "required": ["path"],
-                },
-            ),
-            mcp_types.Tool(
-                name="search_resources",
-                description="Keyword search across node names, IDs, types, and labels.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string"},
-                    },
-                    "required": ["query"],
-                },
-            ),
-        ]
-
-    @server.call_tool()
-    async def call_tool(
-        name: str, arguments: dict[str, Any]
-    ) -> list[mcp_types.TextContent]:
-        # A stat per call: the graph is re-read only when the file changed.
-        graph = cache.get()
+    async def handle_call(name: str, arguments: dict[str, Any]) -> list[mcp_types.TextContent]:
+        # GraphCache: a stat per call, re-read only when the file changed.
+        # Workspace: the in-memory federated graph as of the last rebuild.
+        graph = source.get()
 
         try:
-            result = _dispatch(graph, name, arguments, project_root)
+            result = _dispatch(graph, name, arguments, project_root, source=source)
         except Exception as exc:
             result = {"error": str(exc), "tool": name}
 
         return [mcp_types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+    server = _make_server(handle_call)
 
     import asyncio
 
@@ -301,6 +343,7 @@ def _dispatch(
     name: str,
     args: dict[str, Any],
     project_root: Path,
+    source: Any = None,
 ) -> Any:
     if name == "get_minimal_context":
         return T.get_minimal_context(graph)
@@ -330,11 +373,28 @@ def _dispatch(
     elif name == "get_knowledge_gaps":
         return T.get_knowledge_gaps(graph)
     elif name == "build_or_update_graph":
-        # The next call picks the rebuilt file up through the cache's stamp.
-        return T.build_or_update_graph(
+        rebuild_path = getattr(source, "rebuild_path", None)
+        if callable(rebuild_path):
+            # A served root: rebuild it and re-federate in-process.
+            stats = rebuild_path(Path(args["path"]))
+            if stats is not None:
+                return {
+                    "success": True,
+                    "path": args["path"],
+                    "federated": True,
+                    "stats": stats,
+                }
+        # Standalone build; a GraphCache picks the new file up through its stamp.
+        result = T.build_or_update_graph(
             path=args["path"],
             update_only=bool(args.get("update_only", False)),
         )
+        if callable(rebuild_path) and result.get("success"):
+            result["note"] = (
+                "path is not one of the served roots; built standalone, "
+                "the served federated graph is unchanged"
+            )
+        return result
     elif name == "search_resources":
         return T.search_resources(graph, query=args["query"])
     else:

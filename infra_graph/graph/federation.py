@@ -59,21 +59,18 @@ def load_graph_file(path: Path) -> tuple[nx.DiGraph, dict]:
 
 
 def federate(graph_paths: list[Path]) -> tuple[nx.DiGraph, dict]:
+    """Load the graph files and merge them; see `federate_graphs`."""
+    return federate_graphs([load_graph_file(p)[0] for p in graph_paths])
+
+
+def federate_graphs(source_graphs: list[nx.DiGraph]) -> tuple[nx.DiGraph, dict]:
     """
-    Main entry point: load and merge multiple graphs, resolve unknowns,
-    infer provisioned_by edges.
+    Main entry point: merge already-loaded graphs, resolve unknowns, infer
+    provisioned_by edges. The source graphs are read, not modified.
 
     Returns (merged_graph, meta_dict).
     """
-    source_graphs: list[nx.DiGraph] = []
-    source_metas: list[dict] = []
-    total_nodes_before = 0
-
-    for p in graph_paths:
-        g, m = load_graph_file(p)
-        source_graphs.append(g)
-        source_metas.append(m)
-        total_nodes_before += g.number_of_nodes()
+    total_nodes_before = sum(g.number_of_nodes() for g in source_graphs)
 
     # ── Build unified node set ────────────────────────────────────────────────
     merged = nx.DiGraph()
@@ -127,7 +124,7 @@ def federate(graph_paths: list[Path]) -> tuple[nx.DiGraph, dict]:
 
     meta: dict = {
         "federated": True,
-        "source_count": len(graph_paths),
+        "source_count": len(source_graphs),
         "total_nodes_before_federation": total_nodes_before,
         "node_count": merged.number_of_nodes(),
         "edge_count": merged.number_of_edges(),

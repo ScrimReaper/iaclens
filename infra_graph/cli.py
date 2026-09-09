@@ -290,22 +290,47 @@ def federate(paths: tuple[str, ...], output: str | None, fmt: str) -> None:
 # ── serve ─────────────────────────────────────────────────────────────────────
 
 @cli.command()
-@click.option("--path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option(
+    "--path", "paths", multiple=True, default=(".",),
+    type=click.Path(exists=True, file_okay=False),
+    help="Project root. Repeat to serve several repos as one federated graph.",
+)
 @click.option("--graph", "graph_path", default=None,
               type=click.Path(exists=True, dir_okay=False),
-              help="Explicit graph file to serve (overrides default search)")
-def serve(path: str, graph_path: str | None) -> None:
+              help="Explicit graph file to serve, static (single --path only)")
+@click.option("--out", "out_file", default=None, type=click.Path(dir_okay=False),
+              help="Multi-root only: also write the federated graph here after each rebuild")
+def serve(paths: tuple[str, ...], graph_path: str | None, out_file: str | None) -> None:
     """Start the MCP stdio server.
 
-    Auto-watches the project for file changes and does a debounced full
-    rebuild on each one, so the graph stays fresh without a separate
-    `build --watch` process. Set IACLENS_NO_WATCH=1 to disable watching, and
-    IACLENS_WATCH_DEBOUNCE_MS to tune the debounce window (default 800,
-    clamped to [100, 60000]). Passing an explicit --graph disables
-    auto-watch: that file is served static, since rebuilds always write to
-    the project's own iaclens-out/graph.toon.
+    Builds the graph on startup, then watches the project and does a
+    debounced full rebuild on each change, so the graph stays fresh. Set
+    IACLENS_NO_WATCH=1 to disable watching, and IACLENS_WATCH_DEBOUNCE_MS to
+    tune the debounce window (default 800, clamped to [100, 60000]).
+
+    Repeat --path to serve several repos as ONE federated graph: each root is
+    built on its own, the graphs are federated in-process, and a change under
+    one root rebuilds only that root and re-federates. --out also persists the
+    federated graph to a file.
+
+    Passing an explicit --graph disables auto-watch: that file is served
+    static, since rebuilds always write to the project's own
+    iaclens-out/graph.toon.
     """
-    project_root = Path(path).resolve()
+    roots = [Path(p).resolve() for p in paths]
+
+    if len(roots) > 1:
+        if graph_path:
+            raise click.UsageError(
+                "--graph serves one static file; use it with a single --path, "
+                "or --out to persist the federated graph."
+            )
+        _serve_workspace(roots, Path(out_file) if out_file else None)
+        return
+    if out_file:
+        raise click.UsageError("--out applies to multi-root serve only (repeat --path).")
+
+    project_root = roots[0]
     builder = _get_builder(project_root)
 
     # Catch-up build so the graph is fresh before the server starts.
@@ -324,6 +349,67 @@ def serve(path: str, graph_path: str | None) -> None:
             scheduler.stop()
             observer.stop()
             observer.join()
+
+
+def _serve_workspace(roots: list[Path], out_file: Path | None) -> None:
+    from .workspace import Workspace
+
+    ws = Workspace(roots, out_file=out_file)
+    click.echo(f"Building graphs for {len(roots)} roots:", err=True)
+    for r in roots:
+        click.echo(f"  {r}", err=True)
+    stats = ws.build_all()
+    click.echo(
+        f"Federated: nodes={stats['nodes']}, edges={stats['edges']}, "
+        f"unknowns_resolved={stats.get('unknowns_resolved', 0)}",
+        err=True,
+    )
+    if out_file is not None:
+        click.echo(f"Federated graph: {ws.out_file}", err=True)
+
+    watch_handle = _maybe_start_workspace_watch(ws)
+
+    from .mcp.server import run_server
+    try:
+        run_server(project_root=roots[0], source=ws)
+    finally:
+        if watch_handle is not None:
+            scheduler, observers = watch_handle
+            scheduler.stop()
+            for observer in observers:
+                observer.stop()
+            for observer in observers:
+                observer.join()
+
+
+def _maybe_start_workspace_watch(ws) -> tuple | None:
+    """Watch every root of a Workspace with ONE shared debounce scheduler.
+
+    An event under a root marks that root dirty and pokes the scheduler; the
+    debounced rebuild then rebuilds only the dirty roots and re-federates.
+    Returns `(scheduler, [observer, ...])`, or None when watching is disabled.
+    """
+    import os
+
+    if os.environ.get("IACLENS_NO_WATCH"):
+        return None
+
+    from .watch import RebuildScheduler, debounce_ms_from_env, start_watching
+
+    scheduler = RebuildScheduler(
+        rebuild_fn=ws.flush_dirty,
+        debounce_ms=debounce_ms_from_env(),
+    )
+
+    class _DirtyNotifier:
+        def notify(self, path: str | None = None) -> None:
+            if path is not None:
+                ws.mark_dirty(path)
+            scheduler.notify(path)
+
+    notifier = _DirtyNotifier()
+    observers = [start_watching(root, ws, notifier) for root in ws.roots]
+    return scheduler, observers
 
 
 def _maybe_start_watch(

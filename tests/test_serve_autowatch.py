@@ -126,6 +126,14 @@ def test_watchdog_event_on_tf_file_notifies_scheduler_once(tmp_path, monkeypatch
     handler.on_modified(IgnoredEvent())
     assert scheduler.notified == [str(tmp_path / "main.tf")]
 
+    # Deleting a parseable file must trigger too, or its nodes linger.
+    class DeletedEvent:
+        is_directory = False
+        src_path = str(tmp_path / "old.yaml")
+
+    handler.on_deleted(DeletedEvent())
+    assert scheduler.notified[-1] == str(tmp_path / "old.yaml")
+
 
 def test_real_rebuild_scheduler_is_accepted_by_start_watching(tmp_path, monkeypatch):
     """Sanity check start_watching's handler wiring against the real
@@ -165,3 +173,91 @@ def test_real_rebuild_scheduler_is_accepted_by_start_watching(tmp_path, monkeypa
 
     handler.on_modified(FakeEvent())
     assert observer.started is True
+
+
+# ── multi-root serve ──────────────────────────────────────────────────────────
+
+
+def test_workspace_watch_marks_root_dirty_and_notifies(tmp_path, monkeypatch):
+    """One observer per root; an event under root B marks B dirty and pokes
+    the shared debounce scheduler."""
+    import infra_graph.watch as watch_mod
+    from infra_graph.cli import _maybe_start_workspace_watch
+    from infra_graph.workspace import Workspace
+
+    monkeypatch.delenv("IACLENS_NO_WATCH", raising=False)
+    observers: list[FakeObserver] = []
+
+    def _factory():
+        obs = FakeObserver()
+        observers.append(obs)
+        return obs
+
+    monkeypatch.setattr(watch_mod, "Observer", _factory)
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    ws = Workspace([a, b])
+    dirty: list[str] = []
+    ws.mark_dirty = lambda p: dirty.append(str(p))  # type: ignore[method-assign]
+
+    handle = _maybe_start_workspace_watch(ws)
+    assert handle is not None
+    scheduler, obs_list = handle
+    assert len(obs_list) == 2
+    assert {o.scheduled[0][1] for o in observers} == {str(a), str(b)}
+
+    notified: list[str] = []
+    scheduler.notify = lambda p=None: notified.append(str(p))  # type: ignore[method-assign]
+    handler_b = next(o for o in observers if o.scheduled[0][1] == str(b)).scheduled[0][0]
+
+    class Ev:
+        is_directory = False
+        src_path = str(b / "x.yaml")
+
+    handler_b.on_modified(Ev())
+    assert dirty == [str(b / "x.yaml")]
+    assert notified == [str(b / "x.yaml")]
+    scheduler.stop()
+
+
+def test_workspace_watch_respects_no_watch_env(tmp_path, monkeypatch):
+    from infra_graph.cli import _maybe_start_workspace_watch
+    from infra_graph.workspace import Workspace
+
+    monkeypatch.setenv("IACLENS_NO_WATCH", "1")
+    a = tmp_path / "a"
+    a.mkdir()
+    assert _maybe_start_workspace_watch(Workspace([a])) is None
+
+
+def test_serve_rejects_graph_with_multiple_paths(tmp_path):
+    from click.testing import CliRunner
+
+    from infra_graph.cli import cli
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    g = tmp_path / "g.toon"
+    g.write_text("")
+    result = CliRunner().invoke(
+        cli, ["serve", "--path", str(a), "--path", str(b), "--graph", str(g)]
+    )
+    assert result.exit_code != 0
+    assert "--graph" in result.output
+
+
+def test_serve_rejects_out_with_single_path(tmp_path):
+    from click.testing import CliRunner
+
+    from infra_graph.cli import cli
+
+    a = tmp_path / "a"
+    a.mkdir()
+    result = CliRunner().invoke(
+        cli, ["serve", "--path", str(a), "--out", str(tmp_path / "o.toon")]
+    )
+    assert result.exit_code != 0
+    assert "--out" in result.output
