@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "iaclens"
-version = "0.8.0"
+version = "0.9.0"
 description = "Infrastructure knowledge-graph MCP server for Terraform/OpenTofu, Kubernetes, ArgoCD, Helm, Kustomize, Ansible, GitHub Actions, and Docker Compose"
 readme = "README.md"
 requires-python = ">=3.10"
