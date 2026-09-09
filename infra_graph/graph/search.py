@@ -30,7 +30,8 @@ def _field_value(nid: str, attrs: dict, field: str) -> str:
 
 
 def _tokens(query: str) -> list[str]:
-    return [t for t in query.lower().split() if len(t) >= 2]
+    # dict.fromkeys dedups while keeping order, so a repeated word scores once.
+    return list(dict.fromkeys(t for t in query.lower().split() if len(t) >= 2))
 
 
 def search_nodes(graph: nx.DiGraph, query: str) -> list[dict]:
