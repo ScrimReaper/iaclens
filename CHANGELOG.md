@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- Terraform/OpenTofu: a computed expression (`format(...)`, `local.n + 1`,
+  `a ? b : c`, splats like `hcloud_server.node[*].ip`, for-comprehensions)
+  used to become one `dynamic_ref` edge whose target was the raw expression
+  text, i.e. a typeless `unknown` node named after the expression. The parser
+  now links to every reference inside the expression (still `dynamic_ref`,
+  provenance AMBIGUOUS) and never creates the expression node. Loop variables
+  of for-comprehensions are skipped. A bare `module.<m>` reference is a
+  `uses_module` edge to the module block instead of a mislabeled resource.
+
 ## [0.8.0] — 2026-09-09
 
 ### Added
