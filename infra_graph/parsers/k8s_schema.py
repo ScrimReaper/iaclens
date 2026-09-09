@@ -161,22 +161,26 @@ class KubernetesParser:
         self,
         path: Path,
         preprocessed_text: str | None = None,
+        docs: list | None = None,
     ) -> dict[str, Any]:
         """
         Parse a single manifest file (may contain multiple YAML documents).
 
+        ``docs`` are the file's already-parsed YAML documents; pass them when
+        the caller has parsed the file so it is not parsed again.
         ``preprocessed_text`` is used when the caller has already stripped
         Helm template directives — the file on disk is not re-read in that case.
         """
         nodes: list[dict] = []
         edges: list[dict] = []
 
-        try:
-            text = preprocessed_text if preprocessed_text is not None else path.read_text(encoding="utf-8")
-            docs = list(_yaml.load_all(text))
-        except Exception as exc:
-            warnings.warn(f"[k8s_schema] Failed to parse {path}: {exc}")
-            return {"nodes": nodes, "edges": edges}
+        if docs is None:
+            try:
+                text = preprocessed_text if preprocessed_text is not None else path.read_text(encoding="utf-8")
+                docs = list(_yaml.load_all(text))
+            except Exception as exc:
+                warnings.warn(f"[k8s_schema] Failed to parse {path}: {exc}")
+                return {"nodes": nodes, "edges": edges}
 
         for doc in docs:
             if not isinstance(doc, dict):
