@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -60,8 +61,9 @@ class GraphBuilder:
                 self._cache = {}
 
     def save_cache(self) -> None:
-        cache_path = self.out_dir / _CACHE_FILE
-        cache_path.write_text(json.dumps(self._cache, indent=2))
+        from .toon import write_text_atomic
+
+        write_text_atomic(self.out_dir / _CACHE_FILE, json.dumps(self._cache, indent=2))
 
     def load_graph(self) -> bool:
         """Load persisted graph. Try graph.toon first, then graph.json. Returns True if successful."""
@@ -127,36 +129,37 @@ class GraphBuilder:
                 "nodes": nodes,
                 "edges": edges,
             }
-            graph_path.write_text(json.dumps(data, indent=2, default=str))
+            _toon.write_text_atomic(graph_path, json.dumps(data, indent=2, default=str))
 
     # ── File discovery ────────────────────────────────────────────────────────
 
     def _collect_files(self, ignore_spec: Any = None) -> list[Path]:
-        """Walk project root and return parseable infrastructure files."""
+        """Walk project root and return parseable infrastructure files.
+
+        Dot-directories (except ``.github``, for Actions workflows) and the
+        ``iaclens-out`` output dir are pruned from the walk, not just
+        filtered afterwards, so a large ``.git``/``.terraform`` tree is never
+        descended into.
+        """
         extensions = {".tf", ".yml", ".yaml"}
         files: list[Path] = []
-        for path in self.project_root.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in extensions:
-                continue
-            # Skip hidden dirs (except .github for Actions)
-            rel = path.relative_to(self.project_root)
-            parts = rel.parts
-            skip = False
-            for part in parts[:-1]:
-                if part.startswith(".") and part != ".github":
-                    skip = True
-                    break
-            if skip:
-                continue
-            if ignore_spec is not None:
-                try:
-                    if ignore_spec.match_file(str(rel)):
-                        continue
-                except Exception:
-                    pass
-            files.append(path)
+        for dirpath, dirnames, filenames in os.walk(self.project_root):
+            dirnames[:] = sorted(
+                d for d in dirnames
+                if (not d.startswith(".") or d == ".github") and d != _OUT_DIR
+            )
+            for fname in filenames:
+                path = Path(dirpath) / fname
+                if path.suffix not in extensions:
+                    continue
+                if ignore_spec is not None:
+                    rel = path.relative_to(self.project_root)
+                    try:
+                        if ignore_spec.match_file(str(rel)):
+                            continue
+                    except Exception:
+                        pass
+                files.append(path)
         return files
 
     def _load_ignore_spec(self) -> Any:

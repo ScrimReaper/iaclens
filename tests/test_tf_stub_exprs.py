@@ -68,3 +68,16 @@ def test_unresolvable_exprs_make_no_unknown_nodes(tmp_path):
 
     garbage = [nid for nid in node_ids if any(c in nid for c in '("[')]
     assert not garbage, f"garbage-charactered node ids present: {garbage}"
+
+
+def test_legitimate_uses_var_edge_survives_the_drop(tmp_path):
+    proj = tmp_path / "proj"
+    shutil.copytree(_FIXTURE, proj)
+    builder = GraphBuilder(proj)
+    builder.build()
+    assert any(
+        d.get("type") == "uses_var"
+        and f.endswith("#aws_instance.web")
+        and t.endswith("#name")
+        for f, t, d in builder.graph.edges(data=True)
+    ), "the var.name reference inside templatefile(...) args must still link"

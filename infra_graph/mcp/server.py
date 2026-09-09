@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import json
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
 import networkx as nx
+
+from ..graph import toon
 
 try:
     from mcp import types as mcp_types
@@ -31,59 +34,71 @@ _GRAPH_FILE = "graph.toon"
 _GRAPH_FILE_JSON = "graph.json"
 
 
-def _load_graph(project_root: Path, graph_file: Path | None = None) -> nx.DiGraph:
+def _load_graph_file(path: Path) -> nx.DiGraph:
+    """Load one persisted graph file (.toon or .json). Raises on failure."""
+    if path.suffix == ".toon":
+        g, _ = toon.load_graph(path)
+        return g
+    data = json.loads(path.read_text())
+    g = nx.DiGraph()
+    for node in data.get("nodes", []):
+        node = dict(node)
+        nid = node.pop("id")
+        g.add_node(nid, **node)
+    for edge in data.get("edges", []):
+        edge = dict(edge)
+        frm = edge.pop("from")
+        to = edge.pop("to")
+        g.add_edge(frm, to, **edge)
+    return g
+
+
+class GraphCache:
+    """Serve the persisted graph, re-reading it only when the file changed.
+
+    Search order for the file: ``graph_file`` if given, then
+    ``project_root/iaclens-out/graph.toon``, then ``.../graph.json``. The
+    file's (path, mtime, size) is the change stamp; a stat per call replaces a
+    full parse per call. A file that fails to load (for example one still
+    being written) leaves the last good graph in place and is retried on the
+    next call.
     """
-    Load the persisted graph.
 
-    Search order:
-      1. ``graph_file`` if explicitly provided
-      2. ``project_root/iaclens-out/graph.toon``
-      3. ``project_root/iaclens-out/graph.json``
-    """
-    import warnings
+    def __init__(self, project_root: Path, graph_file: Path | None = None) -> None:
+        self._candidates: list[Path] = []
+        if graph_file is not None:
+            self._candidates.append(graph_file)
+        self._candidates.append(project_root / _OUT_DIR / _GRAPH_FILE)
+        self._candidates.append(project_root / _OUT_DIR / _GRAPH_FILE_JSON)
+        self._stamp: tuple[str, int, int] | None = None
+        self._graph: nx.DiGraph = nx.DiGraph()
 
-    from ..graph import toon
+    def _source(self) -> Path | None:
+        for candidate in self._candidates:
+            if candidate.exists():
+                return candidate
+        return None
 
-    candidates: list[Path] = []
-    if graph_file is not None:
-        candidates.append(graph_file)
-    candidates.append(project_root / _OUT_DIR / _GRAPH_FILE)
-    candidates.append(project_root / _OUT_DIR / _GRAPH_FILE_JSON)
-
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
+    def get(self) -> nx.DiGraph:
+        src = self._source()
+        if src is None:
+            if self._stamp is not None:
+                self._stamp = None
+                self._graph = nx.DiGraph()
+            return self._graph
         try:
-            if candidate.suffix == ".toon":
-                g, _ = toon.load_graph(candidate)
-                return g
-            # JSON fallback
-            data = json.loads(candidate.read_text())
-            g = nx.DiGraph()
-            for node in data.get("nodes", []):
-                node = dict(node)
-                nid = node.pop("id")
-                g.add_node(nid, **node)
-            for edge in data.get("edges", []):
-                edge = dict(edge)
-                frm = edge.pop("from")
-                to = edge.pop("to")
-                g.add_edge(frm, to, **edge)
-            return g
+            st = src.stat()
+        except OSError:
+            return self._graph
+        stamp = (str(src), st.st_mtime_ns, st.st_size)
+        if stamp == self._stamp:
+            return self._graph
+        try:
+            self._graph = _load_graph_file(src)
+            self._stamp = stamp
         except Exception as exc:
-            warnings.warn(f"[server] Failed to load {candidate}: {exc}")
-
-    return nx.DiGraph()
-
-
-def _reload_graph(
-    project_root: Path, graph: nx.DiGraph, graph_file: Path | None = None
-) -> nx.DiGraph:
-    """Reload graph in-place."""
-    new_graph = _load_graph(project_root, graph_file=graph_file)
-    graph.clear()
-    graph.update(new_graph)
-    return graph
+            warnings.warn(f"[server] Failed to load {src}: {exc}")
+        return self._graph
 
 
 def run_server(project_root: Path | None = None, graph_file: Path | None = None) -> None:
@@ -98,8 +113,8 @@ def run_server(project_root: Path | None = None, graph_file: Path | None = None)
     if project_root is None:
         project_root = Path.cwd()
 
-    # Load graph at startup
-    graph = _load_graph(project_root, graph_file=graph_file)
+    cache = GraphCache(project_root, graph_file=graph_file)
+    cache.get()  # load at startup so the first call is served warm
 
     server = Server("iaclens")
 
@@ -262,11 +277,11 @@ def run_server(project_root: Path | None = None, graph_file: Path | None = None)
     async def call_tool(
         name: str, arguments: dict[str, Any]
     ) -> list[mcp_types.TextContent]:
-        # Reload graph before each call to pick up any changes
-        _reload_graph(project_root, graph, graph_file=graph_file)
+        # A stat per call: the graph is re-read only when the file changed.
+        graph = cache.get()
 
         try:
-            result = _dispatch(graph, name, arguments, project_root, graph_file=graph_file)
+            result = _dispatch(graph, name, arguments, project_root)
         except Exception as exc:
             result = {"error": str(exc), "tool": name}
 
@@ -286,7 +301,6 @@ def _dispatch(
     name: str,
     args: dict[str, Any],
     project_root: Path,
-    graph_file: Path | None = None,
 ) -> Any:
     if name == "get_minimal_context":
         return T.get_minimal_context(graph)
@@ -316,14 +330,11 @@ def _dispatch(
     elif name == "get_knowledge_gaps":
         return T.get_knowledge_gaps(graph)
     elif name == "build_or_update_graph":
-        result = T.build_or_update_graph(
+        # The next call picks the rebuilt file up through the cache's stamp.
+        return T.build_or_update_graph(
             path=args["path"],
             update_only=bool(args.get("update_only", False)),
         )
-        # Reload the graph after build
-        if result.get("success"):
-            _reload_graph(project_root, graph, graph_file=graph_file)
-        return result
     elif name == "search_resources":
         return T.search_resources(graph, query=args["query"])
     else:

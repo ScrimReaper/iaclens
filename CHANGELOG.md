@@ -7,7 +7,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- `build_or_update_graph` (MCP) reported `graph.json` as the written file; the
+  default format is TOON, so it now reports `graph.toon`.
+- Graph, JSON, and file-hash cache writes are atomic (temp file + rename), so a
+  reader never sees a half-written graph while `serve` rebuilds it.
+- `query`/`search_resources` count a repeated term once (`wazuh wazuh` no longer
+  scores double).
+
 ### Changed
+- The MCP server re-reads the graph file only when its (mtime, size) changed,
+  instead of parsing it again on every tool call (about 27ms per call on a
+  1400-node graph). A file that fails to load keeps the last good graph and is
+  retried on the next call.
+- The file walk prunes dot-directories (except `.github`) and `iaclens-out`
+  instead of descending into them and filtering afterwards, so a large `.git`
+  or `.terraform` tree is never visited.
+- Federation resolves fuzzy unknowns through a base-name index instead of
+  rescanning every node per unknown.
 - The YAML dispatcher parses each file once and hands the parsed documents to
   the sub-parser it picks. Before, the Ansible sniff, the Ansible parser, and
   the Kubernetes parser each re-read and re-parsed the same file, so a plain

@@ -462,7 +462,7 @@ def build_or_update_graph(
             "success": True,
             "path": str(project_path),
             "stats": stats,
-            "graph_file": str(builder.out_dir / "graph.json"),
+            "graph_file": str(builder.out_dir / "graph.toon"),
             "update_only": update_only,
         }
     except Exception as exc:

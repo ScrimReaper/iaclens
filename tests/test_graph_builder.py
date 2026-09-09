@@ -302,3 +302,24 @@ def test_actions_uses_action_edge(builder):
     targets = {t for f, t, d in uses_edges}
     checkout = [t for t in targets if "checkout" in t.lower()]
     assert len(checkout) >= 1
+
+
+def test_collect_files_prunes_hidden_and_output_dirs(tmp_path):
+    (tmp_path / "a.yaml").write_text("a: 1\n")
+    (tmp_path / ".terraform" / "m").mkdir(parents=True)
+    (tmp_path / ".terraform" / "m" / "x.tf").write_text("")
+    (tmp_path / "iaclens-out").mkdir()
+    (tmp_path / "iaclens-out" / "y.yaml").write_text("b: 1\n")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / "ci.yml").write_text("name: ci\n")
+    files = {p.relative_to(tmp_path).as_posix() for p in GraphBuilder(tmp_path)._collect_files()}
+    assert files == {"a.yaml", ".github/workflows/ci.yml"}
+
+
+def test_save_graph_leaves_no_temp_files(tmp_path):
+    (tmp_path / "conf.yml").write_text("a: 1\n")
+    b = GraphBuilder(tmp_path)
+    b.build()
+    b.save_graph(output_format="json")
+    names = sorted(p.name for p in b.out_dir.iterdir())
+    assert names == ["cache", "graph.json", "graph.toon"]

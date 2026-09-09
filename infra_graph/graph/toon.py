@@ -24,6 +24,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -241,10 +242,19 @@ def loads_graph(text: str) -> tuple[nx.DiGraph, dict]:
     return graph, meta
 
 
+def write_text_atomic(path: Path | str, text: str) -> None:
+    """Write ``text`` to ``path`` via a same-directory temp file + rename, so a
+    reader never sees a half-written file (the MCP server re-reads the graph
+    while ``serve`` rebuilds it)."""
+    path = Path(path)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def dump_graph(graph: nx.DiGraph, path: Path | str, meta: dict | None = None) -> None:
-    """Write a graph to a .toon file."""
-    text = dumps_graph(graph, meta)
-    Path(path).write_text(text, encoding="utf-8")
+    """Write a graph to a .toon file (atomically)."""
+    write_text_atomic(path, dumps_graph(graph, meta))
 
 
 def load_graph(path: Path | str) -> tuple[nx.DiGraph, dict]:

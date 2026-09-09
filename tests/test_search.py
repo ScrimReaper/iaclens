@@ -65,3 +65,9 @@ def test_search_resources_shape_preserved():
     top = out["results"][0]
     assert set(top) >= {"id", "score", "matched_fields", "type", "kind", "file", "degree"}
     assert top["id"] == _A
+
+
+def test_repeated_term_does_not_inflate_score():
+    once = search_nodes(_graph(), "wazuh")[0]["score"]
+    twice = search_nodes(_graph(), "wazuh wazuh")[0]["score"]
+    assert twice == once

@@ -147,6 +147,13 @@ def _resolve_unknowns(merged: nx.DiGraph, source_graphs: list[nx.DiGraph]) -> li
     to_remove: set[str] = set()
     new_edges: list[dict] = []
 
+    # base name -> real (non-unknown) node ids, built once instead of
+    # rescanning every node for every unknown (was O(unknowns x nodes)).
+    by_base: dict[str, list[str]] = {}
+    for cid, attrs in merged.nodes(data=True):
+        if attrs.get("type") != "unknown":
+            by_base.setdefault(_base_name(cid), []).append(cid)
+
     for nid in list(merged.nodes):
         if merged.nodes[nid].get("type") != "unknown":
             continue
@@ -156,6 +163,7 @@ def _resolve_unknowns(merged: nx.DiGraph, source_graphs: list[nx.DiGraph]) -> li
         for g in source_graphs:
             if nid in g and g.nodes[nid].get("type") != "unknown":
                 merged.nodes[nid].update(g.nodes[nid])
+                by_base.setdefault(_base_name(nid), []).append(nid)
                 resolved = True
                 break
         if resolved:
@@ -165,11 +173,8 @@ def _resolve_unknowns(merged: nx.DiGraph, source_graphs: list[nx.DiGraph]) -> li
         base = _base_name(nid)
         ntype_prefix = nid.split("/")[0] if "/" in nid else ""
         candidates = [
-            cid for cid in merged.nodes
-            if cid != nid
-            and merged.nodes[cid].get("type") != "unknown"
-            and _base_name(cid) == base
-            and (not ntype_prefix or cid.startswith(ntype_prefix))
+            cid for cid in by_base.get(base, [])
+            if cid != nid and (not ntype_prefix or cid.startswith(ntype_prefix))
         ]
         if len(candidates) == 1:
             real_id = candidates[0]
