@@ -20,6 +20,9 @@ from ._ids import qualified, rel_posix
 _yaml = YAML()
 _yaml.preserve_quotes = True
 
+# Marker for "no pre-parsed document passed"; `None` is a valid parse result.
+_UNSET: Any = object()
+
 
 def _is_playbook(docs: Any) -> bool:
     """True if the YAML is a list where at least one item has a 'hosts' key."""
@@ -149,37 +152,48 @@ class AnsibleParser:
         # dependency role may be defined/discovered in a different file.
         self._role_deps_pending: list[tuple[str, str]] = []  # (role_name, dep_role_name)
 
-    def is_ansible_file(self, path: Path) -> bool:
-        """Return True if the file appears to be an Ansible playbook, task
-        file, or vars file (group_vars/host_vars/role defaults/role vars).
-
-        The vars cases are decided on path alone, *before* any content sniff:
-        those files are plain mappings, not task lists, so the content-shape
-        checks below (`_is_playbook`/`_is_task_file`/`_is_handler_file`) would
-        never recognize them — the path is the only reliable signal.
-        """
+    def is_ansible_path(self, path: Path) -> bool:
+        """True for files classified by path alone: group_vars/host_vars, role
+        defaults/vars, and role meta. These are plain mappings, not task
+        lists, so the content-shape checks in `is_ansible_file` would never
+        recognize them — the path is the only reliable signal, and no YAML
+        parse is needed to decide."""
         if path.suffix not in (".yml", ".yaml"):
             return False
         if _is_group_vars_path(path) or _is_host_vars_path(path):
             return True
         role_name = self._role_name_from_path(path)
-        if role_name and self._role_vars_kind(path):
-            return True
-        if role_name and self._role_meta_kind(path):
-            return True
-        try:
-            text = path.read_text(encoding="utf-8")
-            docs = _yaml.load(text)
-        except Exception:
-            return False
-        return _is_playbook(docs) or _is_task_file(docs, path) or _is_handler_file(docs, path)
+        return bool(role_name and (self._role_vars_kind(path) or self._role_meta_kind(path)))
 
-    def parse_file(self, path: Path) -> dict[str, Any]:
-        """Parse an Ansible playbook, task file, handler file, or vars file."""
+    def is_ansible_file(self, path: Path, doc: Any = _UNSET) -> bool:
+        """Return True if the file appears to be an Ansible playbook, task
+        file, handler file, or vars/meta file (see `is_ansible_path`).
+
+        `doc` is the file's already-parsed single YAML document. Pass it when
+        the caller has parsed the file, so the sniff does not parse it again.
+        Without it, the file is read and parsed here.
+        """
+        if path.suffix not in (".yml", ".yaml"):
+            return False
+        if self.is_ansible_path(path):
+            return True
+        if doc is _UNSET:
+            try:
+                doc = _yaml.load(path.read_text(encoding="utf-8"))
+            except Exception:
+                return False
+        return _is_playbook(doc) or _is_task_file(doc, path) or _is_handler_file(doc, path)
+
+    def parse_file(self, path: Path, doc: Any = _UNSET) -> dict[str, Any]:
+        """Parse an Ansible playbook, task file, handler file, or vars file.
+
+        `doc` is the already-parsed single YAML document (same contract as
+        `is_ansible_file`); the file is read and parsed only when it is absent.
+        """
         nodes: list[dict] = []
         edges: list[dict] = []
 
-        # ── Vars files (path-only classification, see is_ansible_file) ──────
+        # ── Vars files (path-only classification, see is_ansible_path) ──────
         if _is_group_vars_path(path):
             return self._parse_group_vars_file(path)
         if _is_host_vars_path(path):
@@ -189,14 +203,15 @@ class AnsibleParser:
         if role_name and role_vars_kind:
             return self._parse_role_vars_file(path, role_name, role_vars_kind)
         if role_name and self._role_meta_kind(path):
-            return self._parse_role_meta_file(path, role_name)
+            return self._parse_role_meta_file(path, role_name, doc)
 
-        try:
-            text = path.read_text(encoding="utf-8")
-            docs = _yaml.load(text)
-        except Exception as exc:
-            warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
-            return {"nodes": nodes, "edges": edges}
+        if doc is _UNSET:
+            try:
+                doc = _yaml.load(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
+                return {"nodes": nodes, "edges": edges}
+        docs = doc
 
         if _is_playbook(docs):
             return self._parse_playbook(path, docs)
@@ -549,18 +564,21 @@ class AnsibleParser:
         self._role_vars_pending.append((role_name, vars_id))
         return {"nodes": nodes, "edges": []}
 
-    def _parse_role_meta_file(self, path: Path, role_name: str) -> dict[str, Any]:
+    def _parse_role_meta_file(
+        self, path: Path, role_name: str, doc: Any = _UNSET
+    ) -> dict[str, Any]:
         """`roles/<name>/meta/main.yml` `dependencies:` -> pending
         (role_name, dep_role_name) pairs, resolved to `depends_on` edges in
         `finalize()` (the dependency role may be defined/discovered in a
         different file, parsed before or after this one)."""
         nodes: list[dict] = []
-        try:
-            text = path.read_text(encoding="utf-8")
-            docs = _yaml.load(text)
-        except Exception as exc:
-            warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
-            return {"nodes": nodes, "edges": []}
+        if doc is _UNSET:
+            try:
+                doc = _yaml.load(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
+                return {"nodes": nodes, "edges": []}
+        docs = doc
 
         self._ensure_role(role_name, nodes)  # lazily emits the role node too
 

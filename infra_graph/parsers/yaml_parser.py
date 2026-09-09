@@ -79,9 +79,18 @@ class YAMLParser:
         1. Helm / Kustomize  — by filename
         2. GitHub Actions    — by path pattern
         3. Docker Compose    — by filename
-        4. Ansible           — by content sniff (playbook list or task file)
-        5. Kubernetes / CRD  — any YAML with apiVersion + kind + metadata
-        6. Generic fallback  — any other parseable YAML dict → config node
+        4. Ansible vars/meta — by path
+        5. Ansible           — by content sniff (playbook list or task file)
+        6. Kubernetes / CRD  — any YAML with apiVersion + kind + metadata
+        7. Generic fallback  — any other parseable YAML dict → config node
+
+        Steps 5–7 share ONE parse of the raw text. A file with Go-template
+        directives that is not Ansible is stripped and parsed a second time
+        (Helm templates): the raw parse may succeed yet yield garbage keys
+        (`{{ .Release.Namespace }}` reads as a flow mapping), so it is never
+        trusted for k8s. The raw parse is still made first because Ansible's
+        Jinja `{{ var }}` strings are valid YAML and must reach the Ansible
+        sniff intact.
         """
         empty: dict[str, Any] = {"nodes": [], "edges": []}
 
@@ -101,11 +110,10 @@ class YAMLParser:
         if path.suffix not in (".yml", ".yaml"):
             return empty
 
-        # ── Ansible (content sniff — before K8s so playbooks aren't mis-routed) ─
-        if self._ansible.is_ansible_file(path):
+        # ── Ansible vars/meta (path-only, no parse needed) ────────────────────
+        if self._ansible.is_ansible_path(path):
             return self._ansible.parse_file(path)
 
-        # ── Read and optionally strip Helm directives ─────────────────────────
         try:
             text = path.read_text(encoding="utf-8")
         except Exception as exc:
@@ -113,22 +121,36 @@ class YAMLParser:
             return empty
 
         is_helm_template = bool(_HELM_DIRECTIVE_RE.search(text))
-        if is_helm_template:
-            text = _strip_helm_directives(text)
-
+        raw_docs: list | None
         try:
-            docs = list(_yaml.load_all(text))
+            raw_docs = list(_yaml.load_all(text))
         except Exception as exc:
+            raw_docs = None
             if not is_helm_template:
                 warnings.warn(f"[yaml_parser] Cannot parse YAML in {path}: {exc}")
-            return empty
+                return empty
+
+        # ── Ansible (content sniff — before K8s so playbooks aren't mis-routed)
+        if raw_docs is not None:
+            # A single-document file is what the Ansible sniff expects.
+            single_doc = raw_docs[0] if len(raw_docs) == 1 else None
+            if self._ansible.is_ansible_file(path, doc=single_doc):
+                return self._ansible.parse_file(path, doc=single_doc)
+
+        stripped_text: str | None = None
+        if is_helm_template:
+            stripped_text = _strip_helm_directives(text)
+            try:
+                docs = list(_yaml.load_all(stripped_text))
+            except Exception:
+                return empty
+        else:
+            docs = raw_docs or []
 
         # ── Kubernetes / CRD (any apiVersion + kind + metadata) ──────────────
         k8s_docs = [d for d in docs if isinstance(d, dict) and is_kubernetes_file(d)]
         if k8s_docs:
-            return self._k8s.parse_file(
-                path, preprocessed_text=text if is_helm_template else None
-            )
+            return self._k8s.parse_file(path, preprocessed_text=stripped_text, docs=docs)
 
         # ── Generic YAML fallback — any parseable YAML dict → config node ─────
         for doc in docs:
