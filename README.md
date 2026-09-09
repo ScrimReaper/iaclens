@@ -136,7 +136,7 @@ node_modules/
 
 ```bash
 iaclens build .                 # parse the repo and build the graph
-iaclens build . --update        # re-parse only changed files
+iaclens build . --update        # rebuild only if a file was added, changed, or deleted
 iaclens build . --format json   # write graph.json instead of the default graph.toon
 
 iaclens serve                   # start the MCP stdio server
