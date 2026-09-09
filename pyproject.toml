@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "iaclens"
-version = "0.7.1"
-description = "Knowledge graph plugin for Terraform, Kubernetes, GitHub Actions, and Docker Compose infrastructure files"
+version = "0.8.0"
+description = "Infrastructure knowledge-graph MCP server for Terraform/OpenTofu, Kubernetes, ArgoCD, Helm, Kustomize, Ansible, GitHub Actions, and Docker Compose"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
