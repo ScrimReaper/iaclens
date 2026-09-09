@@ -7,6 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- `iaclens install --root <repo>` (repeatable) writes a multi-root
+  `serve --path ...` MCP entry, so several repos are served as one live
+  federated graph without editing `.mcp.json` by hand.
+
+### Changed
+- `build --update` (and the MCP tool's `update_only`) now means "rebuild only
+  if a file was added, changed, or deleted". When nothing changed, the
+  persisted graph is returned with no parsing. When something changed, a full
+  rebuild runs. The old mode re-parsed only changed files and merged the old
+  graph back in, which kept nodes of deleted files and missed cross-file edges
+  (for example a new Service selecting an unchanged Deployment).
+
 ### Fixed
 - Terraform/OpenTofu: a computed expression (`format(...)`, `local.n + 1`,
   `a ? b : c`, splats like `hcloud_server.node[*].ip`, for-comprehensions)

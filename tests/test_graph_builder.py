@@ -358,3 +358,54 @@ def test_rebuild_forgets_deleted_files(tmp_path):
     for f, t, _ in b.graph.edges(data=True):
         assert "Service/" not in f and "Service/" not in t
         assert "play/" not in f and "play/" not in t
+
+
+def _k8s_doc(kind: str, name: str, extra: str = "") -> str:
+    return (
+        f"apiVersion: v1\nkind: {kind}\nmetadata:\n  name: {name}\n  namespace: default\n"
+        f"  labels:\n    app: {name}\n{extra}"
+    )
+
+
+def test_update_drops_nodes_of_deleted_files(tmp_path):
+    """`--update` used to merge the OLD graph back in, so a deleted file's
+    nodes never left. Any change now triggers a clean full build."""
+    (tmp_path / "web.yaml").write_text(_k8s_doc("Deployment", "web"))
+    (tmp_path / "db.yaml").write_text(_k8s_doc("Deployment", "db"))
+    GraphBuilder(tmp_path).build()
+
+    (tmp_path / "db.yaml").unlink()
+    b = GraphBuilder(tmp_path)
+    stats = b.build(update_only=True)
+    names = {a.get("name") for _, a in b.graph.nodes(data=True)}
+    assert "db" not in names and "web" in names
+    assert stats["files_parsed"] == 1
+
+
+def test_update_resolves_cross_file_edges_to_unchanged_files(tmp_path):
+    """A new Service selecting an UNCHANGED Deployment must get its
+    routes_to edge. The old skip-unchanged-files mode never parsed the
+    Deployment again, so the selector had nothing to match."""
+    (tmp_path / "web.yaml").write_text(_k8s_doc("Deployment", "web"))
+    GraphBuilder(tmp_path).build()
+
+    (tmp_path / "svc.yaml").write_text(
+        _k8s_doc("Service", "web-svc", "spec:\n  selector:\n    app: web\n")
+    )
+    b = GraphBuilder(tmp_path)
+    b.build(update_only=True)
+    assert any(
+        d.get("type") == "routes_to" and f.startswith("Service/") and t.startswith("Deployment/")
+        for f, t, d in b.graph.edges(data=True)
+    )
+
+
+def test_update_with_no_changes_keeps_the_graph_and_parses_nothing(tmp_path):
+    (tmp_path / "web.yaml").write_text(_k8s_doc("Deployment", "web"))
+    first = GraphBuilder(tmp_path)
+    first.build()
+    b = GraphBuilder(tmp_path)
+    stats = b.build(update_only=True)
+    assert stats["files_parsed"] == 0
+    assert stats["files_skipped"] == 1
+    assert set(b.graph.nodes()) == set(first.graph.nodes())

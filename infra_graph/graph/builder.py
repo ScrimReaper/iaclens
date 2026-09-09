@@ -178,18 +178,23 @@ class GraphBuilder:
 
     def build(self, update_only: bool = False, output_format: str = "toon") -> dict[str, Any]:
         """
-        Scan all infrastructure files and build/update the graph.
+        Scan all infrastructure files and build the graph.
 
         Args:
-            update_only: If True, skip files whose SHA-256 matches the cache.
+            update_only: If True, compare every file's SHA-256 with the cache
+                first. When nothing changed (no new, changed, or deleted file)
+                the persisted graph is loaded and returned as-is with no
+                parsing. Otherwise a FULL rebuild runs: cross-file edges
+                (k8s selectors, Ansible includes, module outputs) need every
+                file's parser state, so re-parsing only the changed files
+                would miss edges to unchanged files and keep nodes of deleted
+                ones.
             output_format: 'toon' (default) or 'json'.
 
         Returns:
-            Stats dict with counts of nodes, edges, files parsed.
+            Stats dict with counts of nodes, edges, files parsed/skipped.
         """
         self.load_cache()
-        if update_only:
-            self.load_graph()
 
         # Sub-parsers keep cross-file state (k8s label index, Ansible plays,
         # roles...). A rebuild on the same builder (`serve` auto-watch) must
@@ -199,25 +204,27 @@ class GraphBuilder:
 
         ignore_spec = self._load_ignore_spec()
         files = sorted(self._collect_files(ignore_spec))
+        hashes = {str(f): _sha256(f) for f in files}
+
+        if update_only and hashes == self._cache and self.load_graph():
+            return {
+                "nodes": self.graph.number_of_nodes(),
+                "edges": self.graph.number_of_edges(),
+                "files_parsed": 0,
+                "files_skipped": len(files),
+            }
 
         parsed_files = 0
-        skipped_files = 0
         all_nodes: list[dict] = []
         all_edges: list[dict] = []
 
         for fpath in files:
-            fkey = str(fpath)
-            sha = _sha256(fpath)
-            if update_only and self._cache.get(fkey) == sha:
-                skipped_files += 1
-                continue
-
             result = self._parse_single(fpath)
             if result:
                 all_nodes.extend(result.get("nodes", []))
                 all_edges.extend(result.get("edges", []))
-                self._cache[fkey] = sha
                 parsed_files += 1
+        self._cache = hashes
 
         # Finalize YAML (k8s selector resolution)
         extra_edges = self._yaml_parser.finalize()
@@ -241,17 +248,6 @@ class GraphBuilder:
             if key not in edge_set and all(k is not None for k in key):
                 edge_set.add(key)
                 unique_edges.append(e)
-
-        # If updating, merge with existing graph
-        if update_only:
-            for nid, attrs in self.graph.nodes(data=True):
-                if nid not in node_map:
-                    node_map[nid] = {"id": nid, **attrs}
-            for frm, to, attrs in self.graph.edges(data=True):
-                key = (frm, to, attrs.get("type"))
-                if key not in edge_set:
-                    edge_set.add(key)
-                    unique_edges.append({"from": frm, "to": to, **attrs})
 
         # Build graph
         self.graph = nx.DiGraph()
@@ -281,7 +277,7 @@ class GraphBuilder:
             "nodes": self.graph.number_of_nodes(),
             "edges": self.graph.number_of_edges(),
             "files_parsed": parsed_files,
-            "files_skipped": skipped_files,
+            "files_skipped": 0,
         }
 
     def _parse_single(self, path: Path) -> dict[str, Any] | None:

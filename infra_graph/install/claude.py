@@ -9,15 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-_MCP_JSON = {
-    "mcpServers": {
-        "iaclens": {
-            "command": "iaclens",
-            "args": ["serve"],
-        }
-    }
-}
-
 _CLAUDE_MD_SECTION = """
 ## MCP Tools: iaclens
 
@@ -53,7 +44,19 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 """
 
 
-def install(project_root: Path, federated_graph: Path | None = None) -> dict[str, str]:
+def _serve_entry(roots: list[Path] | None) -> dict:
+    """The `iaclens` MCP entry: plain `serve`, or multi-root `serve --path ...`."""
+    args = ["serve"]
+    for r in roots or []:
+        args += ["--path", str(r.resolve())]
+    return {"command": "iaclens", "args": args}
+
+
+def install(
+    project_root: Path,
+    federated_graph: Path | None = None,
+    roots: list[Path] | None = None,
+) -> dict[str, str]:
     """
     Write .mcp.json and update CLAUDE.md in the given project root.
 
@@ -62,6 +65,9 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
         federated_graph: Optional path to a federated graph file.  When
             provided, a second ``"iaclens-federated"`` entry is written
             to ``.mcp.json`` pointing at the given file.
+        roots: Optional repo roots. When given, the ``"iaclens"`` entry
+            runs ``serve --path <root>...`` so several repos are served as
+            one live federated graph.
 
     Returns a dict of {filename: action} for reporting.
     """
@@ -76,7 +82,7 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
         except Exception:
             existing = {}
         servers = existing.setdefault("mcpServers", {})
-        servers["iaclens"] = _MCP_JSON["mcpServers"]["iaclens"]
+        servers["iaclens"] = _serve_entry(roots)
         if federated_graph is not None:
             servers["iaclens-federated"] = {
                 "command": "iaclens",
@@ -85,7 +91,7 @@ def install(project_root: Path, federated_graph: Path | None = None) -> dict[str
         mcp_json_path.write_text(json.dumps(existing, indent=2) + "\n")
         results[".mcp.json"] = "updated"
     else:
-        config = dict(_MCP_JSON)
+        config = {"mcpServers": {"iaclens": _serve_entry(roots)}}
         if federated_graph is not None:
             config["mcpServers"]["iaclens-federated"] = {
                 "command": "iaclens",

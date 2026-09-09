@@ -236,7 +236,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "update_only": {
                     "type": "boolean",
                     "default": False,
-                    "description": "If true, only re-parse changed files",
+                    "description": "If true, skip the rebuild when no file changed",
                 },
             },
             "required": ["path"],
