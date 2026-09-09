@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from infra_graph.parsers import ansible_schema, k8s_schema, yaml_parser
+from infra_graph.parsers import _yaml as yamlio
+from infra_graph.parsers import ansible_schema
 from infra_graph.parsers.yaml_parser import YAMLParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -30,9 +31,8 @@ def load_counter(monkeypatch):
 
         monkeypatch.setattr(obj, name, counted)
 
-    for mod in (yaml_parser, ansible_schema, k8s_schema):
-        _wrap(mod._yaml, "load")
-        _wrap(mod._yaml, "load_all")
+    _wrap(yamlio, "load")
+    _wrap(yamlio, "load_all")
     return counts
 
 

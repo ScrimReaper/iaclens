@@ -19,6 +19,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   rebuild runs. The old mode re-parsed only changed files and merged the old
   graph back in, which kept nodes of deleted files and missed cross-file edges
   (for example a new Service selecting an unchanged Deployment).
+- All YAML parsing goes through one loader module (`parsers/_yaml.py`) that
+  uses ruamel's `safe` loader with a line-capturing constructor instead of the
+  round-trip loader. With `ruamel.yaml.clib` present (nixpkgs ships it) full
+  builds are 3.5–4x faster (an Ansible repo with 900 files: 3.2s → 0.9s; a
+  GitOps repo heavy in Helm templates: 6.7s → 1.6s); in pure Python about
+  15–20%. Files the fast loader rejects but the round-trip loader accepts
+  (unknown tags such as `!vault`, a stricter C scanner) fall back to the
+  round-trip loader, so every file that parsed before still parses. Graph
+  output is identical on eight real repos; the C scanner additionally accepts
+  one file with a trailing tab that the pure loader rejects.
 
 ### Fixed
 - Terraform/OpenTofu: a computed expression (`format(...)`, `local.n + 1`,

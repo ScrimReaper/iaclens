@@ -13,10 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
-
-_yaml = YAML()
-_yaml.preserve_quotes = True
+from . import _yaml as yamlio
 
 # ── Core Kubernetes kinds ──────────────────────────────────────────────────────
 K8S_KINDS = {
@@ -177,7 +174,7 @@ class KubernetesParser:
         if docs is None:
             try:
                 text = preprocessed_text if preprocessed_text is not None else path.read_text(encoding="utf-8")
-                docs = list(_yaml.load_all(text))
+                docs = (yamlio.load_all(text))
             except Exception as exc:
                 warnings.warn(f"[k8s_schema] Failed to parse {path}: {exc}")
                 return {"nodes": nodes, "edges": edges}
@@ -198,11 +195,7 @@ class KubernetesParser:
             node_labels = _get_labels(metadata)
             node_id = _node_id(kind, namespace, name)
 
-            line = None
-            try:
-                line = doc.lc.line + 1
-            except AttributeError:
-                pass
+            line = yamlio.line_of(doc)
 
             node = {
                 "id": node_id,

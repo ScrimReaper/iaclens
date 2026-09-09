@@ -13,17 +13,13 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from . import _yaml as yamlio
 from ._ids import qualified, rel_posix
 from .actions_schema import ActionsParser
 from .ansible_schema import AnsibleParser
 from .compose_schema import ComposeParser
 from .helm_schema import HelmParser
 from .k8s_schema import KubernetesParser, is_kubernetes_file
-
-_yaml = YAML()
-_yaml.preserve_quotes = True
 
 # Detects whether a file contains any Helm/Go template directives
 _HELM_DIRECTIVE_RE = re.compile(r"\{\{")
@@ -123,7 +119,7 @@ class YAMLParser:
         is_helm_template = bool(_HELM_DIRECTIVE_RE.search(text))
         raw_docs: list | None
         try:
-            raw_docs = list(_yaml.load_all(text))
+            raw_docs = (yamlio.load_all(text))
         except Exception as exc:
             raw_docs = None
             if not is_helm_template:
@@ -141,7 +137,7 @@ class YAMLParser:
         if is_helm_template:
             stripped_text = _strip_helm_directives(text)
             try:
-                docs = list(_yaml.load_all(stripped_text))
+                docs = (yamlio.load_all(stripped_text))
             except Exception:
                 return empty
         else:
