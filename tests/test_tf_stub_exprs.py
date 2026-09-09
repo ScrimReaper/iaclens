@@ -81,3 +81,43 @@ def test_legitimate_uses_var_edge_survives_the_drop(tmp_path):
         and t.endswith("#name")
         for f, t, d in builder.graph.edges(data=True)
     ), "the var.name reference inside templatefile(...) args must still link"
+
+
+def test_bare_module_ref_is_a_module_edge_not_a_resource():
+    edge_type, target = _classify_interp("module.net", ".")
+    assert edge_type == "uses_module"
+    assert target == "module/.#net"
+
+
+def test_dynamic_exprs_link_their_inner_refs_instead_of_stubbing(tmp_path):
+    """`format("%s-web", var.name)` or `local.n + 1` used to become ONE
+    `dynamic_ref` edge whose target was the raw expression, i.e. a typeless
+    `unknown` node named after the expression. The references inside the
+    expression are what matters: link to them (still marked AMBIGUOUS) and
+    never create the expression node."""
+    proj = tmp_path / "proj"
+    shutil.copytree(_FIXTURE, proj)
+    builder = GraphBuilder(proj)
+    builder.build()
+
+    ids = set(builder.graph.nodes())
+    assert not [n for n in ids if any(c in n for c in " (+\"")], "expression ids leaked"
+    assert not [n for n, a in builder.graph.nodes(data=True) if a.get("type") == "unknown"]
+
+    dyn = {
+        (f.split("#")[-1], t.split("/")[0], t.split("#")[-1])
+        for f, t, d in builder.graph.edges(data=True)
+        if d.get("type") == "dynamic_ref"
+    }
+    assert ("label", "variable", "name") in dyn
+    assert ("count2", "local", "n") in dyn
+    assert ("joined", "resource", "aws_instance.web") in dyn
+    assert ("joined", "variable", "name") in dyn
+    for f, t, d in builder.graph.edges(data=True):
+        if d.get("type") == "dynamic_ref":
+            assert d["provenance"] == "AMBIGUOUS" and d["confidence"] == 0.5
+
+    assert any(
+        d.get("type") == "uses_module" and t == "module/.#net"
+        for _, t, d in builder.graph.edges(data=True)
+    )

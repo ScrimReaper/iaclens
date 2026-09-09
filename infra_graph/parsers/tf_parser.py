@@ -20,9 +20,20 @@ _DATA_RE = re.compile(r"^data\.(\w+)\.(\w+)")
 _LOCAL_RE = re.compile(r"^local\.(\w+)$")
 _RESOURCE_RE = re.compile(r"^(\w+)\.(\w+)\.")
 _MODULE_OUTPUT_RE = re.compile(r"^module\.(\w+)\.(\w+)")
+_MODULE_RE = re.compile(r"^module\.(\w+)$")
 
-# Detect dynamic refs (string concatenation / complex expressions)
-_DYNAMIC_RE = re.compile(r"[+\-*/]|format\(|join\(")
+# Detect dynamic refs: any expression that is not a bare reference path
+# (function calls, arithmetic, conditionals, subscripts with expressions...).
+_DYNAMIC_RE = re.compile(r"[+*/%?:(<>=!]|\s-\s|\[[^\d\]]")
+
+# Reference-shaped tokens INSIDE a dynamic expression: `var.x`, `local.x`,
+# `data.t.n`, `module.m.out`, `type.name(.attr)*`. Each is classified on its
+# own; the expression itself is never a node.
+_INNER_REF_RE = re.compile(r"(?<![\w.\"])([A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)+)")
+
+# Loop variables of a for-comprehension (`[for k, v in ... : v.id]`): `v.id`
+# is not a reference to another node.
+_FOR_VARS_RE = re.compile(r"\bfor\s+([A-Za-z_]\w*)(?:\s*,\s*([A-Za-z_]\w*))?\s+in\b")
 
 # each.value/each.key/count.index: iteration-context references inside a
 # for_each/count block body, not references to another graph node. Never
@@ -174,9 +185,6 @@ def _classify_interp(expr: str, d: str) -> tuple[str, str]:
     directory/module scoped). `module.<m>.<out>` is handled separately by
     callers (queued as a pending cross-module reference and resolved in
     `TerraformParser.finalize()`), so it never reaches this function."""
-    if _DYNAMIC_RE.search(expr):
-        return ("dynamic_ref", expr)
-
     m = _VAR_RE.match(expr)
     if m:
         return ("uses_var", qualified("variable", d, m.group(1)))
@@ -188,6 +196,10 @@ def _classify_interp(expr: str, d: str) -> tuple[str, str]:
     m = _LOCAL_RE.match(expr)
     if m:
         return ("uses_local", qualified("local", d, m.group(1)))
+
+    m = _MODULE_RE.match(expr)
+    if m:
+        return ("uses_module", qualified("module", d, m.group(1)))
 
     m = _RESOURCE_RE.match(expr)
     if m:
@@ -235,26 +247,48 @@ class TerraformParser:
         pending cross-module reference instead and resolved in `finalize()`.
         """
         out: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+
+        def _emit(target: str, edge_type: str, dynamic: bool) -> None:
+            if not target or target == node_id or (target, edge_type) in seen:
+                return
+            seen.add((target, edge_type))
+            out.append(
+                {
+                    "from": node_id,
+                    "to": target,
+                    "type": edge_type,
+                    "confidence": 0.5 if dynamic else 1.0,
+                    "provenance": "AMBIGUOUS" if dynamic else "EXTRACTED",
+                }
+            )
+
         for expr in exprs:
             if _ITERATION_CTX_RE.match(expr):
+                continue
+            if _DYNAMIC_RE.search(expr):
+                # A computed expression (format(...), local.n + 1, a ? b : c):
+                # the expression is not a node. Link to every reference inside
+                # it, marked ambiguous, and never stub the expression itself.
+                loop_vars = {v for m in _FOR_VARS_RE.finditer(expr) for v in m.groups() if v}
+                for inner in _INNER_REF_RE.findall(expr):
+                    if _ITERATION_CTX_RE.match(inner) or _COMPILE_TIME_CTX_RE.match(inner):
+                        continue
+                    if inner.split(".", 1)[0] in loop_vars:
+                        continue
+                    mo = _MODULE_OUTPUT_RE.match(inner)
+                    if mo:
+                        self._pending_module_outputs.append((node_id, d, mo.group(1), mo.group(2)))
+                        continue
+                    _, target = _classify_interp(inner, d)
+                    _emit(target, edge_type_override or "dynamic_ref", dynamic=True)
                 continue
             mo = _MODULE_OUTPUT_RE.match(expr)
             if mo:
                 self._pending_module_outputs.append((node_id, d, mo.group(1), mo.group(2)))
                 continue
             edge_type, target = _classify_interp(expr, d)
-            if edge_type_override:
-                edge_type = edge_type_override
-            if target and target != node_id:
-                out.append(
-                    {
-                        "from": node_id,
-                        "to": target,
-                        "type": edge_type,
-                        "confidence": 0.5 if edge_type == "dynamic_ref" else 1.0,
-                        "provenance": "AMBIGUOUS" if edge_type == "dynamic_ref" else "EXTRACTED",
-                    }
-                )
+            _emit(target, edge_type_override or edge_type, dynamic=False)
         return out
 
     def parse_file(self, path: Path) -> dict[str, Any]:
