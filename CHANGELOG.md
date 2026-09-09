@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-09-09
+
 ### Added
 - `iaclens install --root <repo>` (repeatable) writes a multi-root
   `serve --path ...` MCP entry, so several repos are served as one live
@@ -230,7 +232,8 @@ non-functional `--mode deep` option and the PyPI publish workflow.
 - `infra-graph install` for Claude Code, Cursor, Codex, and OpenCode.
 - `/infra-graph` Claude Code skill.
 
-[Unreleased]: https://github.com/ScrimReaper/iaclens/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ScrimReaper/iaclens/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ScrimReaper/iaclens/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ScrimReaper/iaclens/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/ScrimReaper/iaclens/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ScrimReaper/iaclens/compare/v0.6.0...v0.7.0
