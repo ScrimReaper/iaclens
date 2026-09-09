@@ -52,7 +52,8 @@ def cli() -> None:
 
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
-@click.option("--update", is_flag=True, help="Incremental update (skip unchanged files)")
+@click.option("--update", is_flag=True,
+              help="Rebuild only if a file was added, changed, or deleted since the last build")
 @click.option("--format", "fmt", default="toon", type=click.Choice(["toon", "json"]),
               help="Output graph format (default: toon)")
 def build(path: str, update: bool, fmt: str) -> None:
@@ -62,7 +63,7 @@ def build(path: str, update: bool, fmt: str) -> None:
 
     click.echo(f"Building graph for: {project_root}")
     if update:
-        click.echo("Mode: incremental update")
+        click.echo("Mode: update (rebuild only if files changed)")
 
     stats = builder.build(update_only=update, output_format=fmt)
 
@@ -466,16 +467,23 @@ def _maybe_start_watch(
     type=click.Path(dir_okay=False),
     help="Path to a federated graph file; adds iaclens-federated MCP entry",
 )
-def install(platform: str, path: str, federated: str | None) -> None:
+@click.option(
+    "--root", "roots", multiple=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Repo root to serve. Repeat to serve several repos as one federated graph "
+         "(claude-code only; writes `serve --path ...`).",
+)
+def install(platform: str, path: str, federated: str | None, roots: tuple[str, ...]) -> None:
     """Install iaclens integration files into a project."""
     project_root = Path(path).resolve()
     click.echo(f"Installing iaclens for {platform} in: {project_root}")
 
     federated_path = Path(federated).resolve() if federated else None
+    root_paths = [Path(r).resolve() for r in roots]
 
     if platform == "claude-code":
         from .install.claude import install as _install
-        results = _install(project_root, federated_graph=federated_path)
+        results = _install(project_root, federated_graph=federated_path, roots=root_paths)
     elif platform == "cursor":
         from .install.cursor import install as _install
         results = _install(project_root)
