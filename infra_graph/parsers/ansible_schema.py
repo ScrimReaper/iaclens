@@ -13,12 +13,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from . import _yaml as yamlio
 from ._ids import qualified, rel_posix
-
-_yaml = YAML()
-_yaml.preserve_quotes = True
 
 # Marker for "no pre-parsed document passed"; `None` is a valid parse result.
 _UNSET: Any = object()
@@ -179,7 +175,7 @@ class AnsibleParser:
             return True
         if doc is _UNSET:
             try:
-                doc = _yaml.load(path.read_text(encoding="utf-8"))
+                doc = yamlio.load(path.read_text(encoding="utf-8"))
             except Exception:
                 return False
         return _is_playbook(doc) or _is_task_file(doc, path) or _is_handler_file(doc, path)
@@ -207,7 +203,7 @@ class AnsibleParser:
 
         if doc is _UNSET:
             try:
-                doc = _yaml.load(path.read_text(encoding="utf-8"))
+                doc = yamlio.load(path.read_text(encoding="utf-8"))
             except Exception as exc:
                 warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
                 return {"nodes": nodes, "edges": edges}
@@ -395,11 +391,7 @@ class AnsibleParser:
             play_name = play.get("name") or f"{path.stem}/{hosts}"
             play_id = qualified("play", rel, hosts)
 
-            line = None
-            try:
-                line = play.lc.line + 1
-            except AttributeError:
-                pass
+            line = yamlio.line_of(play)
 
             if play_id not in seen_ids:
                 play_node = {
@@ -500,11 +492,7 @@ class AnsibleParser:
             if not name:
                 continue
 
-            line = None
-            try:
-                line = handler.lc.line + 1
-            except AttributeError:
-                pass
+            line = yamlio.line_of(handler)
 
             if role_name:
                 handler_id = f"handler/{role_name}/{name}"
@@ -574,7 +562,7 @@ class AnsibleParser:
         nodes: list[dict] = []
         if doc is _UNSET:
             try:
-                doc = _yaml.load(path.read_text(encoding="utf-8"))
+                doc = yamlio.load(path.read_text(encoding="utf-8"))
             except Exception as exc:
                 warnings.warn(f"[ansible_schema] Failed to parse {path}: {exc}")
                 return {"nodes": nodes, "edges": []}

@@ -6,12 +6,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from . import _yaml as yamlio
 from ._ids import rel_posix
-
-_yaml = YAML()
-_yaml.preserve_quotes = True
 
 
 class HelmParser:
@@ -39,7 +35,7 @@ class HelmParser:
 
         try:
             text = path.read_text(encoding="utf-8")
-            doc = _yaml.load(text)
+            doc = yamlio.load(text)
         except Exception as exc:
             warnings.warn(f"[helm_schema] Failed to parse {path}: {exc}")
             return {"nodes": nodes, "edges": edges}
@@ -137,7 +133,7 @@ class HelmParser:
 
         try:
             text = path.read_text(encoding="utf-8")
-            doc = _yaml.load(text)
+            doc = yamlio.load(text)
         except Exception as exc:
             warnings.warn(f"[helm_schema] Failed to parse {path}: {exc}")
             return {"nodes": nodes, "edges": edges}

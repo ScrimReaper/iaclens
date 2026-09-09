@@ -6,10 +6,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
-
-_yaml = YAML()
-_yaml.preserve_quotes = True
+from . import _yaml as yamlio
 
 _COMPOSE_FILENAMES = {
     "docker-compose.yml", "docker-compose.yaml",
@@ -41,7 +38,7 @@ class ComposeParser:
             return {"nodes": nodes, "edges": edges}
 
         try:
-            doc = _yaml.load(text)
+            doc = yamlio.load(text)
         except Exception as exc:
             warnings.warn(f"[compose_schema] Failed to parse {path}: {exc}")
             return {"nodes": nodes, "edges": edges}
